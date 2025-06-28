@@ -1,0 +1,45 @@
+import React from 'react';
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { motion } from "framer-motion";
+
+export default function StatsCard({ 
+  title, 
+  value, 
+  icon: Icon, 
+  gradient, 
+  trend, 
+  subtitle,
+  delay = 0 
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.5 }}
+    >
+      <Card className="wellness-card border-0 shadow-lg hover:shadow-xl transition-all duration-300 group">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
+              <p className="text-2xl font-bold text-gray-900">{value}</p>
+              {subtitle && (
+                <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
+              )}
+            </div>
+            <div className={`w-12 h-12 bg-gradient-to-r ${gradient} rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>
+              <Icon className="w-6 h-6 text-white" />
+            </div>
+          </div>
+        </CardHeader>
+        {trend && (
+          <CardContent className="pt-0">
+            <div className="flex items-center text-sm">
+              <span className="text-green-600 font-medium">{trend}</span>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+    </motion.div>
+  );
+}

@@ -1,0 +1,375 @@
+import React, { useState, useEffect } from "react";
+import { NutritionPlan, User } from "@/entities/all";
+import { InvokeLLM } from "@/integrations/Core";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  Utensils, 
+  Target, 
+  Zap, 
+  Heart, 
+  Coffee, 
+  Apple,
+  Loader2,
+  ChefHat,
+  Clock
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const MEAL_TYPES = [
+  { value: "breakfast", label: "Breakfast", icon: Coffee, gradient: "from-orange-400 to-red-400" },
+  { value: "lunch", label: "Lunch", icon: Utensils, gradient: "from-green-400 to-blue-400" },
+  { value: "dinner", label: "Dinner", icon: ChefHat, gradient: "from-purple-400 to-pink-400" },
+  { value: "snack", label: "Snack", icon: Apple, gradient: "from-yellow-400 to-orange-400" }
+];
+
+const WELLNESS_GOALS = [
+  "weight_loss", "muscle_gain", "mental_health", "better_sleep", 
+  "stress_reduction", "healthy_aging", "skin_health", "energy_boost"
+];
+
+export default function Nutrition() {
+  const [user, setUser] = useState(null);
+  const [selectedMeal, setSelectedMeal] = useState("breakfast");
+  const [selectedGoal, setSelectedGoal] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [nutritionPlan, setNutritionPlan] = useState(null);
+  const [recentPlans, setRecentPlans] = useState([]);
+
+  useEffect(() => {
+    loadUserAndPlans();
+  }, []);
+
+  const loadUserAndPlans = async () => {
+    try {
+      const [userData, plans] = await Promise.all([
+        User.me(),
+        NutritionPlan.list('-created_date', 5)
+      ]);
+      setUser(userData);
+      setRecentPlans(plans);
+      if (userData.wellness_goals && userData.wellness_goals.length > 0) {
+        setSelectedGoal(userData.wellness_goals[0]);
+      }
+    } catch (error) {
+      console.error("Error loading data:", error);
+    }
+  };
+
+  const generateMealPlan = async () => {
+    if (!selectedGoal) return;
+    
+    setIsGenerating(true);
+    
+    try {
+      const dietaryRestrictions = user?.preferences?.dietary_restrictions || [];
+      
+      const prompt = `
+        As an AI nutritionist, create a detailed, healthy ${selectedMeal} plan for someone with the wellness goal: ${selectedGoal}.
+        
+        Dietary restrictions: ${dietaryRestrictions.length > 0 ? dietaryRestrictions.join(', ') : 'None'}
+        
+        Create a meal plan with 3-5 specific food items that align with their goal. For each food item, provide:
+        - Name of the food
+        - Approximate calories
+        - Protein, carbs, and fat content (in grams)
+        
+        Also provide reasoning for why this meal supports their ${selectedGoal} goal.
+        
+        Make it practical, delicious, and nutritionally balanced.
+      `;
+
+      const result = await InvokeLLM({
+        prompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            foods: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  calories: { type: "number" },
+                  protein: { type: "number" },
+                  carbs: { type: "number" },
+                  fat: { type: "number" }
+                }
+              }
+            },
+            reasoning: { type: "string" },
+            total_calories: { type: "number" }
+          }
+        }
+      });
+
+      const planData = {
+        meal_type: selectedMeal,
+        foods: result.foods,
+        total_calories: result.total_calories,
+        ai_reasoning: result.reasoning,
+        wellness_goal_alignment: selectedGoal
+      };
+
+      await NutritionPlan.create(planData);
+      setNutritionPlan(planData);
+      loadUserAndPlans();
+
+      // Award points
+      try {
+        await User.updateMyUserData({
+          total_points: (user.total_points || 0) + 15
+        });
+      } catch (error) {
+        console.log("Could not update points");
+      }
+
+    } catch (error) {
+      console.error("Error generating meal plan:", error);
+    }
+    
+    setIsGenerating(false);
+  };
+
+  const getMealIcon = (mealType) => {
+    const meal = MEAL_TYPES.find(m => m.value === mealType);
+    return meal ? meal.icon : Utensils;
+  };
+
+  const getMealGradient = (mealType) => {
+    const meal = MEAL_TYPES.find(m => m.value === mealType);
+    return meal ? meal.gradient : "from-gray-400 to-gray-600";
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent mb-2">
+          AI Nutrition Coach
+        </h1>
+        <p className="text-gray-600">Get personalized meal recommendations powered by advanced AI</p>
+      </motion.div>
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader>
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Target className="w-6 h-6 text-green-600" />
+                Generate Meal Plan
+              </h2>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Meal Type
+                  </label>
+                  <Select value={selectedMeal} onValueChange={setSelectedMeal}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select meal type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MEAL_TYPES.map((meal) => {
+                        const Icon = meal.icon;
+                        return (
+                          <SelectItem key={meal.value} value={meal.value}>
+                            <div className="flex items-center gap-2">
+                              <Icon className="w-4 h-4" />
+                              {meal.label}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Wellness Goal
+                  </label>
+                  <Select value={selectedGoal} onValueChange={setSelectedGoal}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your goal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WELLNESS_GOALS.map((goal) => (
+                        <SelectItem key={goal} value={goal}>
+                          {goal.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <Button
+                onClick={generateMealPlan}
+                disabled={!selectedGoal || isGenerating}
+                className={`w-full bg-gradient-to-r ${getMealGradient(selectedMeal)} text-white py-3 text-lg font-medium rounded-xl shadow-lg hover:shadow-xl transition-all duration-300`}
+              >
+                {isGenerating ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Creating your personalized meal plan...
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-5 h-5" />
+                    Generate AI Meal Plan
+                  </div>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <AnimatePresence>
+            {nutritionPlan && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+              >
+                <Card className="wellness-card border-0 shadow-xl">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xl font-semibold flex items-center gap-2">
+                        <div className={`w-8 h-8 bg-gradient-to-r ${getMealGradient(nutritionPlan.meal_type)} rounded-lg flex items-center justify-center`}>
+                          {React.createElement(getMealIcon(nutritionPlan.meal_type), { 
+                            className: "w-5 h-5 text-white" 
+                          })}
+                        </div>
+                        Your {nutritionPlan.meal_type.charAt(0).toUpperCase() + nutritionPlan.meal_type.slice(1)} Plan
+                      </h3>
+                      <Badge className="bg-green-100 text-green-800">
+                        {nutritionPlan.total_calories} calories
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="bg-blue-50 rounded-xl p-4">
+                      <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                        <Heart className="w-4 h-4" />
+                        Why this meal supports your goal:
+                      </h4>
+                      <p className="text-blue-800 text-sm">{nutritionPlan.ai_reasoning}</p>
+                    </div>
+
+                    <div className="grid gap-4">
+                      <h4 className="font-semibold text-gray-900">Foods in this meal:</h4>
+                      {nutritionPlan.foods.map((food, index) => (
+                        <motion.div
+                          key={index}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.1 }}
+                          className="bg-white rounded-lg p-4 border border-gray-100 shadow-sm"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <h5 className="font-medium text-gray-900">{food.name}</h5>
+                            <span className="text-sm font-semibold text-green-600">
+                              {food.calories} cal
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-4 text-sm text-gray-600">
+                            <div>
+                              <span className="font-medium">Protein:</span> {food.protein}g
+                            </div>
+                            <div>
+                              <span className="font-medium">Carbs:</span> {food.carbs}g
+                            </div>
+                            <div>
+                              <span className="font-medium">Fat:</span> {food.fat}g
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="space-y-6">
+          <Card className="wellness-card border-0 shadow-lg">
+            <CardHeader>
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-purple-600" />
+                Recent Meal Plans
+              </h3>
+            </CardHeader>
+            <CardContent>
+              {recentPlans.length > 0 ? (
+                <div className="space-y-3">
+                  {recentPlans.map((plan) => {
+                    const Icon = getMealIcon(plan.meal_type);
+                    return (
+                      <div key={plan.id} className="bg-white rounded-lg p-3 border border-gray-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Icon className="w-4 h-4 text-gray-600" />
+                            <span className="font-medium capitalize">{plan.meal_type}</span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {new Date(plan.created_date).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {plan.foods?.length || 0} foods • {plan.total_calories} cal
+                        </div>
+                        <Badge variant="outline" className="mt-2 text-xs">
+                          {plan.wellness_goal_alignment?.replace(/_/g, ' ')}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  <Utensils className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                  <p>No meal plans yet</p>
+                  <p className="text-sm">Generate your first AI meal plan!</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="wellness-card border-0 shadow-lg">
+            <CardHeader>
+              <h3 className="text-lg font-semibold text-gray-900">Nutrition Tips</h3>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 text-sm text-gray-600">
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Eat a variety of colorful fruits and vegetables daily</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Stay hydrated with 8-10 glasses of water</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Include lean proteins in every meal</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Practice mindful eating and portion control</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

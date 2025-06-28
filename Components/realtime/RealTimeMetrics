@@ -1,0 +1,254 @@
+import React, { useState, useEffect } from 'react';
+import { RealTimeMetric, User } from "@/entities/all";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { 
+  Activity, 
+  Heart, 
+  Droplets, 
+  Moon, 
+  Zap, 
+  Brain,
+  Timer,
+  TrendingUp,
+  TrendingDown,
+  Minus
+} from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { motion } from "framer-motion";
+
+const METRIC_CONFIGS = {
+  heart_rate: { icon: Heart, color: 'text-red-500', unit: 'bpm', normal: [60, 100] },
+  steps: { icon: Activity, color: 'text-blue-500', unit: 'steps', normal: [8000, 15000] },
+  water_intake: { icon: Droplets, color: 'text-cyan-500', unit: 'glasses', normal: [6, 10] },
+  sleep_hours: { icon: Moon, color: 'text-indigo-500', unit: 'hours', normal: [7, 9] },
+  energy_level: { icon: Zap, color: 'text-yellow-500', unit: '/10', normal: [6, 10] },
+  stress_level: { icon: Brain, color: 'text-purple-500', unit: '/10', normal: [1, 4] },
+  meditation_minutes: { icon: Timer, color: 'text-green-500', unit: 'min', normal: [10, 60] }
+};
+
+export default function RealTimeMetrics({ onMetricUpdate }) {
+  const [metrics, setMetrics] = useState({});
+  const [trends, setTrends] = useState({});
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    loadRecentMetrics();
+    const interval = setInterval(loadRecentMetrics, 30000); // Update every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadRecentMetrics = async () => {
+    try {
+      const recentMetrics = await RealTimeMetric.list('-timestamp', 50);
+      
+      // Group metrics by type and calculate trends
+      const groupedMetrics = {};
+      const trendData = {};
+      
+      recentMetrics.forEach(metric => {
+        const type = metric.metric_type;
+        if (!groupedMetrics[type]) {
+          groupedMetrics[type] = [];
+        }
+        groupedMetrics[type].push(metric);
+      });
+
+      // Calculate latest values and trends
+      const latestMetrics = {};
+      Object.keys(groupedMetrics).forEach(type => {
+        const typeMetrics = groupedMetrics[type].sort((a, b) => 
+          new Date(b.timestamp) - new Date(a.timestamp)
+        );
+        
+        latestMetrics[type] = typeMetrics[0];
+        
+        // Calculate trend (comparing last 2 values)
+        if (typeMetrics.length >= 2) {
+          const current = typeMetrics[0].value;
+          const previous = typeMetrics[1].value;
+          const change = ((current - previous) / previous) * 100;
+          
+          trendData[type] = {
+            direction: change > 5 ? 'up' : change < -5 ? 'down' : 'stable',
+            percentage: Math.abs(change).toFixed(1)
+          };
+        }
+      });
+
+      setMetrics(latestMetrics);
+      setTrends(trendData);
+    } catch (error) {
+      console.error("Error loading metrics:", error);
+    }
+  };
+
+  const updateMetric = async (metricType, value, source = 'manual') => {
+    setIsUpdating(true);
+    try {
+      await RealTimeMetric.create({
+        metric_type: metricType,
+        value: value,
+        source: source,
+        timestamp: new Date().toISOString()
+      });
+      
+      loadRecentMetrics();
+      onMetricUpdate?.(metricType, value);
+    } catch (error) {
+      console.error("Error updating metric:", error);
+    }
+    setIsUpdating(false);
+  };
+
+  const getMetricStatus = (metricType, value) => {
+    const config = METRIC_CONFIGS[metricType];
+    if (!config || !config.normal) return 'normal';
+    
+    const [min, max] = config.normal;
+    if (value < min) return 'low';
+    if (value > max) return 'high';
+    return 'normal';
+  };
+
+  const getTrendIcon = (trend) => {
+    if (!trend) return <Minus className="w-3 h-3" />;
+    switch (trend.direction) {
+      case 'up': return <TrendingUp className="w-3 h-3 text-green-500" />;
+      case 'down': return <TrendingDown className="w-3 h-3 text-red-500" />;
+      default: return <Minus className="w-3 h-3 text-gray-500" />;
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'low': return 'bg-red-100 text-red-800';
+      case 'high': return 'bg-orange-100 text-orange-800';
+      default: return 'bg-green-100 text-green-800';
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">Real-Time Health Metrics</h3>
+        <Badge variant="outline" className="text-xs">
+          Live Updates
+        </Badge>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {Object.entries(METRIC_CONFIGS).map(([metricType, config]) => {
+          const metric = metrics[metricType];
+          const trend = trends[metricType];
+          const Icon = config.icon;
+          const status = metric ? getMetricStatus(metricType, metric.value) : 'normal';
+
+          return (
+            <motion.div
+              key={metricType}
+              whileHover={{ scale: 1.02 }}
+              layout
+            >
+              <Card className="wellness-card border-0 shadow-md hover:shadow-lg transition-all duration-300">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <Icon className={`w-5 h-5 ${config.color}`} />
+                    {trend && (
+                      <div className="flex items-center gap-1">
+                        {getTrendIcon(trend)}
+                        <span className="text-xs text-gray-500">{trend.percentage}%</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="mb-2">
+                    <p className="text-2xl font-bold text-gray-900">
+                      {metric ? metric.value : '--'}
+                      <span className="text-sm font-normal text-gray-500 ml-1">
+                        {config.unit}
+                      </span>
+                    </p>
+                    <p className="text-xs text-gray-600 capitalize">
+                      {metricType.replace('_', ' ')}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <Badge className={`text-xs ${getStatusColor(status)}`}>
+                      {status}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs h-6 px-2"
+                      onClick={() => {
+                        const newValue = prompt(`Enter ${metricType.replace('_', ' ')}:`);
+                        if (newValue && !isNaN(newValue)) {
+                          updateMetric(metricType, parseFloat(newValue));
+                        }
+                      }}
+                      disabled={isUpdating}
+                    >
+                      Update
+                    </Button>
+                  </div>
+
+                  {metric?.timestamp && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      {new Date(metric.timestamp).toLocaleTimeString()}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Quick Update Buttons */}
+      <Card className="wellness-card border-0 shadow-md">
+        <CardHeader>
+          <h4 className="text-sm font-medium text-gray-900">Quick Updates</h4>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateMetric('water_intake', (metrics.water_intake?.value || 0) + 1)}
+              className="text-xs"
+            >
+              +1 Glass Water
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateMetric('meditation_minutes', 10)}
+              className="text-xs"
+            >
+              10min Meditation
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateMetric('energy_level', Math.max(1, (metrics.energy_level?.value || 5) + 1))}
+              className="text-xs"
+            >
+              Energy Boost
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateMetric('stress_level', Math.max(1, (metrics.stress_level?.value || 5) - 1))}
+              className="text-xs"
+            >
+              Stress Down
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

@@ -1,0 +1,340 @@
+import React, { useState, useEffect } from "react";
+import { MoodEntry, User } from "@/entities/all";
+import { InvokeLLM } from "@/integrations/Core";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { 
+  Brain, 
+  Heart, 
+  Smile, 
+  Frown, 
+  Meh, 
+  Zap, 
+  Coffee,
+  Moon,
+  Sun,
+  Cloud,
+  CloudRain
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const EMOTIONS = [
+  { name: "happy", icon: Smile, color: "bg-yellow-100 text-yellow-800" },
+  { name: "sad", icon: Frown, color: "bg-blue-100 text-blue-800" },
+  { name: "anxious", icon: Cloud, color: "bg-gray-100 text-gray-800" },
+  { name: "excited", icon: Zap, color: "bg-orange-100 text-orange-800" },
+  { name: "stressed", icon: CloudRain, color: "bg-red-100 text-red-800" },
+  { name: "calm", icon: Heart, color: "bg-green-100 text-green-800" },
+  { name: "energetic", icon: Sun, color: "bg-amber-100 text-amber-800" },
+  { name: "tired", icon: Moon, color: "bg-indigo-100 text-indigo-800" },
+  { name: "focused", icon: Brain, color: "bg-purple-100 text-purple-800" },
+  { name: "overwhelmed", icon: Coffee, color: "bg-pink-100 text-pink-800" }
+];
+
+const MOOD_FACES = [
+  { score: 1, emoji: "😢", color: "text-red-500" },
+  { score: 2, emoji: "😟", color: "text-red-400" },
+  { score: 3, emoji: "😕", color: "text-orange-500" },
+  { score: 4, emoji: "😐", color: "text-orange-400" },
+  { score: 5, emoji: "😌", color: "text-yellow-500" },
+  { score: 6, emoji: "🙂", color: "text-yellow-400" },
+  { score: 7, emoji: "😊", color: "text-green-400" },
+  { score: 8, emoji: "😄", color: "text-green-500" },
+  { score: 9, emoji: "😁", color: "text-blue-500" },
+  { score: 10, emoji: "🤩", color: "text-purple-500" }
+];
+
+export default function MoodTracker() {
+  const [currentMood, setCurrentMood] = useState(5);
+  const [selectedEmotions, setSelectedEmotions] = useState([]);
+  const [notes, setNotes] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [recentEntries, setRecentEntries] = useState([]);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  useEffect(() => {
+    loadRecentEntries();
+  }, []);
+
+  const loadRecentEntries = async () => {
+    try {
+      const entries = await MoodEntry.list('-created_date', 5);
+      setRecentEntries(entries);
+    } catch (error) {
+      console.error("Error loading mood entries:", error);
+    }
+  };
+
+  const toggleEmotion = (emotion) => {
+    setSelectedEmotions(prev => 
+      prev.includes(emotion) 
+        ? prev.filter(e => e !== emotion)
+        : [...prev, emotion]
+    );
+  };
+
+  const handleSubmit = async () => {
+    if (currentMood < 1 || currentMood > 10) return;
+    
+    setIsSubmitting(true);
+    
+    try {
+      // Get AI insights first
+      const aiPrompt = `
+        Analyze this mood entry and provide insights and recommendations:
+        - Mood Score: ${currentMood}/10
+        - Emotions: ${selectedEmotions.join(', ') || 'None selected'}
+        - Notes: ${notes || 'No additional notes'}
+        
+        Provide a brief, encouraging insight about this mood state and suggest 2-3 specific actions to improve or maintain their wellness.
+      `;
+
+      const aiResult = await InvokeLLM({
+        prompt: aiPrompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            insight: { type: "string" },
+            recommendations: { 
+              type: "array", 
+              items: { type: "string" } 
+            }
+          }
+        }
+      });
+
+      // Save mood entry with AI insights
+      await MoodEntry.create({
+        mood_score: currentMood,
+        emotion_tags: selectedEmotions,
+        notes: notes,
+        ai_insights: aiResult.insight,
+        recommended_actions: aiResult.recommendations
+      });
+
+      // Update user points and streak
+      try {
+        const user = await User.me();
+        await User.updateMyUserData({
+          total_points: (user.total_points || 0) + 10,
+          current_streak: (user.current_streak || 0) + 1
+        });
+      } catch (error) {
+        console.log("Could not update user points");
+      }
+
+      setAiAnalysis(aiResult);
+      setShowSuccess(true);
+      loadRecentEntries();
+      
+      // Reset form
+      setTimeout(() => {
+        setCurrentMood(5);
+        setSelectedEmotions([]);
+        setNotes("");
+        setShowSuccess(false);
+      }, 3000);
+
+    } catch (error) {
+      console.error("Error submitting mood:", error);
+    }
+    
+    setIsSubmitting(false);
+  };
+
+  const getMoodFace = (score) => {
+    return MOOD_FACES.find(face => face.score === score);
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-8">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+          How are you feeling today?
+        </h1>
+        <p className="text-gray-600">Your emotions matter. Let's track your wellness journey together.</p>
+      </motion.div>
+
+      <AnimatePresence mode="wait">
+        {showSuccess ? (
+          <motion.div
+            key="success"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="wellness-card rounded-2xl p-8 text-center shadow-xl"
+          >
+            <div className="text-6xl mb-4">🎉</div>
+            <h2 className="text-2xl font-bold text-green-600 mb-2">Mood Logged Successfully!</h2>
+            <p className="text-gray-600 mb-4">+10 points earned • Streak continued</p>
+            {aiAnalysis && (
+              <div className="bg-purple-50 rounded-xl p-4 text-left">
+                <h3 className="font-semibold text-purple-900 mb-2">AI Insight:</h3>
+                <p className="text-purple-800 text-sm">{aiAnalysis.insight}</p>
+              </div>
+            )}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="form"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="space-y-6"
+          >
+            <Card className="wellness-card border-0 shadow-xl">
+              <CardHeader>
+                <div className="text-center">
+                  <h2 className="text-xl font-semibold flex items-center justify-center gap-2 mb-4">
+                    <Brain className="w-6 h-6 text-purple-600" />
+                    Rate Your Current Mood
+                  </h2>
+                  <div className="text-8xl mb-4">
+                    {getMoodFace(currentMood)?.emoji}
+                  </div>
+                  <div className="text-2xl font-bold text-gray-800 mb-2">
+                    {currentMood}/10
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="px-4">
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={currentMood}
+                    onChange={(e) => setCurrentMood(parseInt(e.target.value))}
+                    className="w-full h-2 bg-gradient-to-r from-red-200 via-yellow-200 to-green-200 rounded-lg appearance-none cursor-pointer slider"
+                    style={{
+                      background: `linear-gradient(to right, 
+                        #fca5a5 0%, 
+                        #fde68a 20%, 
+                        #bef264 40%, 
+                        #60d394 60%, 
+                        #34d399 80%, 
+                        #a78bfa 100%)`
+                    }}
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-2">
+                    <span>Terrible</span>
+                    <span>Okay</span>
+                    <span>Amazing</span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">What emotions are you experiencing?</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {EMOTIONS.map((emotion) => {
+                      const Icon = emotion.icon;
+                      const isSelected = selectedEmotions.includes(emotion.name);
+                      return (
+                        <motion.button
+                          key={emotion.name}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => toggleEmotion(emotion.name)}
+                          className={`p-3 rounded-xl border-2 transition-all duration-200 ${
+                            isSelected 
+                              ? 'border-purple-400 bg-purple-50 shadow-md' 
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <Icon className="w-5 h-5 mx-auto mb-1 text-gray-600" />
+                          <span className="text-xs capitalize font-medium">{emotion.name}</span>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">Any additional thoughts?</h3>
+                  <Textarea
+                    placeholder="What's on your mind? Share any thoughts about your day, feelings, or experiences..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="min-h-24 border-gray-200 focus:border-purple-400 focus:ring-purple-400"
+                  />
+                </div>
+
+                <Button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white py-3 text-lg font-medium rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
+                >
+                  {isSubmitting ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Analyzing your mood...
+                    </div>
+                  ) : (
+                    "Log My Mood"
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {recentEntries.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+        >
+          <Card className="wellness-card border-0 shadow-lg">
+            <CardHeader>
+              <h3 className="text-xl font-semibold text-gray-900">Recent Mood Entries</h3>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {recentEntries.map((entry) => (
+                  <div key={entry.id} className="bg-white rounded-lg p-4 border border-gray-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{getMoodFace(entry.mood_score)?.emoji}</span>
+                        <div>
+                          <span className="font-semibold">{entry.mood_score}/10</span>
+                          <span className="text-gray-500 text-sm ml-2">
+                            {new Date(entry.created_date).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    {entry.emotion_tags && entry.emotion_tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {entry.emotion_tags.map((emotion) => {
+                          const emotionData = EMOTIONS.find(e => e.name === emotion);
+                          return (
+                            <Badge key={emotion} className={emotionData?.color || "bg-gray-100"}>
+                              {emotion}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {entry.ai_insights && (
+                      <div className="bg-purple-50 rounded-lg p-3 mt-2">
+                        <p className="text-sm text-purple-800">{entry.ai_insights}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,59 @@
+{
+  "name": "WorkoutSession",
+  "type": "object",
+  "properties": {
+    "workout_type": {
+      "type": "string",
+      "enum": [
+        "strength",
+        "cardio",
+        "yoga",
+        "stretching",
+        "hiit",
+        "meditation"
+      ]
+    },
+    "duration_minutes": {
+      "type": "number"
+    },
+    "exercises": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "video_prompt": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced"
+      ]
+    },
+    "calories_burned": {
+      "type": "number"
+    },
+    "completed": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "workout_type",
+    "exercises"
+  ]
+}

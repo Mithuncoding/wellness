@@ -1,0 +1,482 @@
+import React, { useState, useEffect } from "react";
+import { WorkoutSession, User } from "@/entities/all";
+import { InvokeLLM } from "@/integrations/Core";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  Dumbbell, 
+  Play, 
+  Clock, 
+  Zap, 
+  Heart, 
+  Target,
+  CheckCircle,
+  Loader2,
+  Timer,
+  Activity
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const WORKOUT_TYPES = [
+  { value: "strength", label: "Strength Training", icon: Dumbbell, gradient: "from-red-500 to-pink-500" },
+  { value: "cardio", label: "Cardio", icon: Heart, gradient: "from-blue-500 to-cyan-500" },
+  { value: "yoga", label: "Yoga", icon: Activity, gradient: "from-purple-500 to-indigo-500" },
+  { value: "stretching", label: "Stretching", icon: Target, gradient: "from-green-500 to-emerald-500" },
+  { value: "hiit", label: "HIIT", icon: Zap, gradient: "from-orange-500 to-red-500" },
+  { value: "meditation", label: "Meditation", icon: Clock, gradient: "from-violet-500 to-purple-500" }
+];
+
+const DIFFICULTY_LEVELS = ["beginner", "intermediate", "advanced"];
+
+export default function Fitness() {
+  const [user, setUser] = useState(null);
+  const [selectedWorkout, setSelectedWorkout] = useState("strength");
+  const [difficulty, setDifficulty] = useState("beginner");
+  const [duration, setDuration] = useState(15);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [currentWorkout, setCurrentWorkout] = useState(null);
+  const [recentWorkouts, setRecentWorkouts] = useState([]);
+  const [activeExercise, setActiveExercise] = useState(0);
+  const [isWorkoutActive, setIsWorkoutActive] = useState(false);
+  const [timer, setTimer] = useState(0);
+  const [timerInterval, setTimerInterval] = useState(null);
+
+  useEffect(() => {
+    loadUserAndWorkouts();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (timerInterval) clearInterval(timerInterval);
+    };
+  }, [timerInterval]);
+
+  const loadUserAndWorkouts = async () => {
+    try {
+      const [userData, workouts] = await Promise.all([
+        User.me(),
+        WorkoutSession.list('-created_date', 10)
+      ]);
+      setUser(userData);
+      setRecentWorkouts(workouts);
+      
+      if (userData.preferences?.workout_intensity) {
+        setDifficulty(userData.preferences.workout_intensity);
+      }
+    } catch (error) {
+      console.error("Error loading data:", error);
+    }
+  };
+
+  const generateWorkout = async () => {
+    setIsGenerating(true);
+    
+    try {
+      const userGoals = user?.wellness_goals || ['general_fitness'];
+      
+      const prompt = `
+        As an expert fitness coach, create a personalized ${selectedWorkout} workout routine.
+        
+        Parameters:
+        - Duration: ${duration} minutes
+        - Difficulty: ${difficulty}
+        - User goals: ${userGoals.join(', ')}
+        
+        Create a workout with 4-8 exercises. For each exercise provide:
+        - Exercise name
+        - Duration (in format like "45 seconds" or "10 reps")
+        - Clear, concise instructions
+        - A brief description for creating a demonstration video
+        
+        Make the workout achievable, safe, and effective for the ${difficulty} level.
+        Estimate total calories that might be burned.
+      `;
+
+      const result = await InvokeLLM({
+        prompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            exercises: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  duration: { type: "string" },
+                  instructions: { type: "string" },
+                  video_prompt: { type: "string" }
+                }
+              }
+            },
+            estimated_calories: { type: "number" }
+          }
+        }
+      });
+
+      const workoutData = {
+        workout_type: selectedWorkout,
+        duration_minutes: duration,
+        exercises: result.exercises,
+        difficulty: difficulty,
+        calories_burned: result.estimated_calories,
+        completed: false
+      };
+
+      const savedWorkout = await WorkoutSession.create(workoutData);
+      setCurrentWorkout({ ...workoutData, id: savedWorkout.id });
+      setActiveExercise(0);
+      loadUserAndWorkouts();
+
+    } catch (error) {
+      console.error("Error generating workout:", error);
+    }
+    
+    setIsGenerating(false);
+  };
+
+  const startWorkout = () => {
+    setIsWorkoutActive(true);
+    setTimer(0);
+    const interval = setInterval(() => {
+      setTimer(prev => prev + 1);
+    }, 1000);
+    setTimerInterval(interval);
+  };
+
+  const finishWorkout = async () => {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      setTimerInterval(null);
+    }
+    
+    setIsWorkoutActive(false);
+    
+    try {
+      await WorkoutSession.update(currentWorkout.id, { completed: true });
+      
+      // Award points and update streak
+      await User.updateMyUserData({
+        total_points: (user.total_points || 0) + 25,
+        current_streak: (user.current_streak || 0) + 1
+      });
+      
+      loadUserAndWorkouts();
+      
+      // Show success message
+      setTimeout(() => {
+        setCurrentWorkout(null);
+        setTimer(0);
+        setActiveExercise(0);
+      }, 3000);
+      
+    } catch (error) {
+      console.error("Error completing workout:", error);
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getWorkoutIcon = (type) => {
+    const workout = WORKOUT_TYPES.find(w => w.value === type);
+    return workout ? workout.icon : Dumbbell;
+  };
+
+  const getWorkoutGradient = (type) => {
+    const workout = WORKOUT_TYPES.find(w => w.value === type);
+    return workout ? workout.gradient : "from-gray-400 to-gray-600";
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
+          AI Fitness Coach
+        </h1>
+        <p className="text-gray-600">Personalized workouts generated just for you</p>
+      </motion.div>
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          {!currentWorkout ? (
+            <Card className="wellness-card border-0 shadow-xl">
+              <CardHeader>
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <Target className="w-6 h-6 text-blue-600" />
+                  Create Your Workout
+                </h2>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Workout Type
+                    </label>
+                    <Select value={selectedWorkout} onValueChange={setSelectedWorkout}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WORKOUT_TYPES.map((workout) => {
+                          const Icon = workout.icon;
+                          return (
+                            <SelectItem key={workout.value} value={workout.value}>
+                              <div className="flex items-center gap-2">
+                                <Icon className="w-4 h-4" />
+                                {workout.label}
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Difficulty
+                    </label>
+                    <Select value={difficulty} onValueChange={setDifficulty}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DIFFICULTY_LEVELS.map((level) => (
+                          <SelectItem key={level} value={level}>
+                            {level.charAt(0).toUpperCase() + level.slice(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Duration (minutes)
+                    </label>
+                    <Select value={duration.toString()} onValueChange={(v) => setDuration(parseInt(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[10, 15, 20, 30, 45, 60].map((mins) => (
+                          <SelectItem key={mins} value={mins.toString()}>
+                            {mins} minutes
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={generateWorkout}
+                  disabled={isGenerating}
+                  className={`w-full bg-gradient-to-r ${getWorkoutGradient(selectedWorkout)} text-white py-3 text-lg font-medium rounded-xl shadow-lg hover:shadow-xl transition-all duration-300`}
+                >
+                  {isGenerating ? (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Creating your personalized workout...
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-5 h-5" />
+                      Generate AI Workout
+                    </div>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <AnimatePresence>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+              >
+                <Card className="wellness-card border-0 shadow-xl">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xl font-semibold flex items-center gap-2">
+                        <div className={`w-8 h-8 bg-gradient-to-r ${getWorkoutGradient(currentWorkout.workout_type)} rounded-lg flex items-center justify-center`}>
+                          {React.createElement(getWorkoutIcon(currentWorkout.workout_type), { 
+                            className: "w-5 h-5 text-white" 
+                          })}
+                        </div>
+                        {currentWorkout.workout_type.charAt(0).toUpperCase() + currentWorkout.workout_type.slice(1)} Workout
+                      </h3>
+                      <div className="flex items-center gap-4">
+                        <Badge className="bg-blue-100 text-blue-800">
+                          {currentWorkout.duration_minutes} min
+                        </Badge>
+                        <Badge className="bg-green-100 text-green-800">
+                          ~{currentWorkout.calories_burned} cal
+                        </Badge>
+                        {isWorkoutActive && (
+                          <div className="flex items-center gap-2 bg-red-100 text-red-800 px-3 py-1 rounded-full">
+                            <Timer className="w-4 h-4" />
+                            {formatTime(timer)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {!isWorkoutActive ? (
+                      <div className="text-center">
+                        <Button
+                          onClick={startWorkout}
+                          className="bg-gradient-to-r from-green-500 to-emerald-500 text-white px-8 py-3 text-lg font-medium rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
+                        >
+                          <Play className="w-5 h-5 mr-2" />
+                          Start Workout
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="bg-green-50 rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-semibold text-green-900">
+                              Exercise {activeExercise + 1} of {currentWorkout.exercises.length}
+                            </h4>
+                            <Badge className="bg-green-200 text-green-800">
+                              {currentWorkout.exercises[activeExercise]?.duration}
+                            </Badge>
+                          </div>
+                          <h5 className="text-lg font-bold text-green-900 mb-2">
+                            {currentWorkout.exercises[activeExercise]?.name}
+                          </h5>
+                          <p className="text-green-800 text-sm">
+                            {currentWorkout.exercises[activeExercise]?.instructions}
+                          </p>
+                        </div>
+
+                        <div className="flex gap-3">
+                          {activeExercise < currentWorkout.exercises.length - 1 ? (
+                            <Button
+                              onClick={() => setActiveExercise(prev => prev + 1)}
+                              className="flex-1 bg-blue-600 hover:bg-blue-700"
+                            >
+                              Next Exercise
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={finishWorkout}
+                              className="flex-1 bg-green-600 hover:bg-green-700"
+                            >
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Complete Workout
+                            </Button>
+                          )}
+                          <Button
+                            onClick={() => setCurrentWorkout(null)}
+                            variant="outline"
+                            className="px-6"
+                          >
+                            Stop
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-gray-900">Exercise List:</h4>
+                      {currentWorkout.exercises.map((exercise, index) => (
+                        <motion.div
+                          key={index}
+                          className={`p-3 rounded-lg border transition-all duration-200 ${
+                            index === activeExercise && isWorkoutActive
+                              ? 'border-green-400 bg-green-50'
+                              : index < activeExercise && isWorkoutActive
+                              ? 'border-gray-300 bg-gray-50 opacity-60'
+                              : 'border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              {index < activeExercise && isWorkoutActive ? (
+                                <CheckCircle className="w-5 h-5 text-green-600" />
+                              ) : (
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-medium ${
+                                  index === activeExercise && isWorkoutActive
+                                    ? 'border-green-400 bg-green-100 text-green-600'
+                                    : 'border-gray-300 text-gray-600'
+                                }`}>
+                                  {index + 1}
+                                </div>
+                              )}
+                              <div>
+                                <p className="font-medium">{exercise.name}</p>
+                                <p className="text-sm text-gray-600">{exercise.duration}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </AnimatePresence>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          <Card className="wellness-card border-0 shadow-lg">
+            <CardHeader>
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-blue-600" />
+                Recent Workouts
+              </h3>
+            </CardHeader>
+            <CardContent>
+              {recentWorkouts.length > 0 ? (
+                <div className="space-y-3">
+                  {recentWorkouts.slice(0, 5).map((workout) => {
+                    const Icon = getWorkoutIcon(workout.workout_type);
+                    return (
+                      <div key={workout.id} className="bg-white rounded-lg p-3 border border-gray-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Icon className="w-4 h-4 text-gray-600" />
+                            <span className="font-medium capitalize">{workout.workout_type}</span>
+                            {workout.completed && (
+                              <CheckCircle className="w-4 h-4 text-green-600" />
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {new Date(workout.created_date).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {workout.duration_minutes} min • {workout.difficulty} • ~{workout.calories_burned} cal
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  <Dumbbell className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                  <p>No workouts yet</p>
+                  <p className="text-sm">Generate your first AI workout!</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

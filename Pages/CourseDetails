@@ -1,0 +1,382 @@
+import React, { useState, useEffect } from 'react';
+import { Course, Chapter, User } from '@/entities/all';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { 
+  CheckCircle, 
+  Lock, 
+  PlayCircle, 
+  Star, 
+  Clock, 
+  BookOpen, 
+  Award,
+  ArrowLeft,
+  Download,
+  Share2
+} from 'lucide-react';
+import { motion } from 'framer-motion';
+
+export default function CourseDetailsPage() {
+  const [course, setCourse] = useState(null);
+  const [chapters, setChapters] = useState([]);
+  const [user, setUser] = useState(null);
+  const [activeChapter, setActiveChapter] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const courseId = urlParams.get('id');
+    if (courseId) {
+      loadData(courseId);
+    }
+  }, []);
+
+  const loadData = async (courseId) => {
+    try {
+      const [courseData, chaptersData, userData] = await Promise.all([
+        Course.list().then(courses => courses.find(c => c.id === courseId)),
+        Chapter.list().then(chapters => chapters.filter(ch => ch.course_id === courseId)),
+        User.me()
+      ]);
+      
+      setCourse(courseData);
+      const sortedChapters = chaptersData.sort((a, b) => a.chapter_number - b.chapter_number);
+      setChapters(sortedChapters);
+      setUser(userData);
+      
+      if (sortedChapters.length > 0) {
+        setActiveChapter(sortedChapters[0]);
+      }
+      
+      calculateProgress(userData, sortedChapters);
+    } catch (error) {
+      console.error("Error loading course details:", error);
+    }
+    setIsLoading(false);
+  };
+  
+  const calculateProgress = (userData, chaptersData) => {
+    if (!userData?.completed_chapters || chaptersData.length === 0) {
+      setProgress(0);
+      return;
+    }
+    const completedCount = chaptersData.filter(ch => userData.completed_chapters.includes(ch.id)).length;
+    setProgress((completedCount / chaptersData.length) * 100);
+  };
+
+  const handleCompleteChapter = async (chapterId) => {
+    if (!user.completed_chapters?.includes(chapterId)) {
+      const updatedChapters = [...(user.completed_chapters || []), chapterId];
+      await User.updateMyUserData({ 
+        completed_chapters: updatedChapters,
+        total_points: (user.total_points || 0) + 25
+      });
+      
+      // Reload data to update progress
+      const urlParams = new URLSearchParams(window.location.search);
+      const courseId = urlParams.get('id');
+      if (courseId) {
+        loadData(courseId);
+      }
+    }
+  };
+
+  const getChapterStatus = (chapterId) => {
+    return user?.completed_chapters?.includes(chapterId) ? 'completed' : 'available';
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+          <div className="h-64 bg-gray-200 rounded"></div>
+          <div className="h-6 bg-gray-200 rounded w-2/3"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!course) {
+    return (
+      <div className="p-8 text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">Course not found</h1>
+        <Button onClick={() => window.history.back()}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Go Back
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center gap-4 mb-6"
+      >
+        <Button 
+          variant="outline" 
+          onClick={() => window.history.back()}
+          className="flex items-center gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Courses
+        </Button>
+        <div className="flex-1">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{course.title}</h1>
+          <p className="text-gray-600">{course.category} • {course.difficulty}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm">
+            <Share2 className="w-4 h-4 mr-2" />
+            Share
+          </Button>
+          <Button variant="outline" size="sm">
+            <Download className="w-4 h-4 mr-2" />
+            Download
+          </Button>
+        </div>
+      </motion.div>
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        {/* Main Content */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Video Player */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.1 }}
+          >
+            <Card className="wellness-card border-0 shadow-xl overflow-hidden">
+              <div className="relative">
+                {activeChapter?.video_id ? (
+                  <iframe
+                    src={`https://www.youtube.com/embed/${activeChapter.video_id}?rel=0&modestbranding=1`}
+                    title={activeChapter.title}
+                    className="w-full aspect-video"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div className="w-full aspect-video bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                    <div className="text-center">
+                      <PlayCircle className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                      <p className="text-gray-600">Select a chapter to start learning</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </motion.div>
+
+          {/* Chapter Info */}
+          {activeChapter && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+            >
+              <Card className="wellness-card border-0 shadow-lg">
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h2 className="text-xl font-bold text-gray-900 mb-2">
+                        Chapter {activeChapter.chapter_number}: {activeChapter.title}
+                      </h2>
+                      <p className="text-gray-600 mb-4">{activeChapter.description}</p>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-4 h-4" />
+                          <span>{activeChapter.duration_minutes} minutes</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <BookOpen className="w-4 h-4" />
+                          <span>Chapter {activeChapter.chapter_number} of {chapters.length}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="ml-4">
+                      {getChapterStatus(activeChapter.id) === 'completed' ? (
+                        <Badge className="bg-green-100 text-green-800">
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Completed
+                        </Badge>
+                      ) : (
+                        <Button onClick={() => handleCompleteChapter(activeChapter.id)}>
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Mark Complete
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Course Description */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <Card className="wellness-card border-0 shadow-lg">
+              <CardHeader>
+                <h3 className="text-lg font-semibold">About This Course</h3>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-700 leading-relaxed mb-4">{course.description}</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <BookOpen className="w-6 h-6 mx-auto mb-2 text-blue-600" />
+                    <div className="font-semibold text-gray-900">{chapters.length}</div>
+                    <div className="text-sm text-gray-600">Chapters</div>
+                  </div>
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <Clock className="w-6 h-6 mx-auto mb-2 text-green-600" />
+                    <div className="font-semibold text-gray-900">
+                      {chapters.reduce((sum, ch) => sum + (ch.duration_minutes || 0), 0)}m
+                    </div>
+                    <div className="text-sm text-gray-600">Total Duration</div>
+                  </div>
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <Star className="w-6 h-6 mx-auto mb-2 text-purple-600" />
+                    <div className="font-semibold text-gray-900">4.9</div>
+                    <div className="text-sm text-gray-600">Rating</div>
+                  </div>
+                  <div className="text-center p-4 bg-orange-50 rounded-lg">
+                    <Award className="w-6 h-6 mx-auto mb-2 text-orange-600" />
+                    <div className="font-semibold text-gray-900">{chapters.length * 25}</div>
+                    <div className="text-sm text-gray-600">Max Points</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Progress Card */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <Card className="wellness-card border-0 shadow-lg sticky top-4">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Course Progress</h3>
+                  <Badge variant="outline">{Math.round(progress)}%</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Progress value={progress} className="h-3" />
+                <div className="text-sm text-gray-600 text-center">
+                  {user?.completed_chapters?.filter(id => chapters.some(ch => ch.id === id)).length || 0} of {chapters.length} chapters completed
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Chapter List */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            <Card className="wellness-card border-0 shadow-lg">
+              <CardHeader>
+                <h3 className="text-lg font-semibold">Course Content</h3>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Accordion type="single" collapsible defaultValue="item-0">
+                  {chapters.map((chapter, index) => {
+                    const isCompleted = getChapterStatus(chapter.id) === 'completed';
+                    const isActive = activeChapter?.id === chapter.id;
+                    
+                    return (
+                      <AccordionItem value={`item-${index}`} key={chapter.id} className="border-b last:border-b-0">
+                        <AccordionTrigger 
+                          onClick={() => setActiveChapter(chapter)}
+                          className={`hover:no-underline px-4 py-3 ${
+                            isActive ? 'bg-blue-50 text-blue-600' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 flex-1 text-left">
+                            <div className="flex-shrink-0">
+                              {isCompleted ? (
+                                <CheckCircle className="w-5 h-5 text-green-500" />
+                              ) : (
+                                <PlayCircle className="w-5 h-5 text-gray-400" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm">
+                                {chapter.chapter_number}. {chapter.title}
+                              </div>
+                              <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
+                                <Clock className="w-3 h-3" />
+                                {chapter.duration_minutes}m
+                              </div>
+                            </div>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="px-4 pb-3">
+                          <p className="text-sm text-gray-600 mb-2">{chapter.description}</p>
+                          {chapter.quiz && (
+                            <Badge variant="outline" className="text-xs">
+                              Includes Quiz
+                            </Badge>
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Achievement Card */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <Card className="wellness-card border-0 shadow-lg bg-gradient-to-br from-yellow-50 to-orange-50">
+              <CardHeader>
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Award className="w-5 h-5 text-orange-600" />
+                  Course Completion Reward
+                </h3>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600 mb-1">
+                    {chapters.length * 25} Points
+                  </div>
+                  <div className="text-sm text-gray-600 mb-3">
+                    Complete all chapters to unlock
+                  </div>
+                  {progress === 100 && (
+                    <Badge className="bg-green-100 text-green-800">
+                      <CheckCircle className="w-3 h-3 mr-1" />
+                      Unlocked!
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}

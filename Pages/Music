@@ -1,0 +1,403 @@
+import React, { useState, useEffect } from "react";
+import { MusicRecommendation, User, MoodEntry } from "@/entities/all";
+import { InvokeLLM } from "@/integrations/Core";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  Music2, 
+  Heart, 
+  Zap, 
+  Brain, 
+  Moon, 
+  Coffee,
+  Play,
+  ExternalLink,
+  Loader2,
+  Headphones,
+  Volume2
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const MOOD_TARGETS = [
+  { value: "calm", label: "Calm & Relax", icon: Heart, gradient: "from-blue-400 to-cyan-400", description: "Peaceful music to help you unwind" },
+  { value: "energize", label: "Energize", icon: Zap, gradient: "from-orange-400 to-red-400", description: "Upbeat tracks to boost your energy" },
+  { value: "focus", label: "Focus", icon: Brain, gradient: "from-purple-400 to-pink-400", description: "Concentration-enhancing soundscapes" },
+  { value: "sleep", label: "Sleep", icon: Moon, gradient: "from-indigo-400 to-purple-400", description: "Soothing sounds for better sleep" },
+  { value: "motivation", label: "Motivation", icon: Coffee, gradient: "from-green-400 to-emerald-400", description: "Inspiring music to keep you going" },
+  { value: "stress_relief", label: "Stress Relief", icon: Volume2, gradient: "from-teal-400 to-blue-400", description: "Therapeutic music for stress reduction" }
+];
+
+export default function MusicTherapy() {
+  const [user, setUser] = useState(null);
+  const [selectedTarget, setSelectedTarget] = useState("calm");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [currentPlaylist, setCurrentPlaylist] = useState(null);
+  const [recentPlaylists, setRecentPlaylists] = useState([]);
+  const [recentMood, setRecentMood] = useState(null);
+
+  useEffect(() => {
+    loadUserAndPlaylists();
+    loadRecentMood();
+  }, []);
+
+  const loadUserAndPlaylists = async () => {
+    try {
+      const [userData, playlists] = await Promise.all([
+        User.me(),
+        MusicRecommendation.list('-created_date', 5)
+      ]);
+      setUser(userData);
+      setRecentPlaylists(playlists);
+    } catch (error) {
+      console.error("Error loading data:", error);
+    }
+  };
+
+  const loadRecentMood = async () => {
+    try {
+      const moods = await MoodEntry.list('-created_date', 1);
+      if (moods.length > 0) {
+        setRecentMood(moods[0]);
+        // Auto-suggest mood target based on recent mood
+        const moodScore = moods[0].mood_score;
+        if (moodScore <= 4) {
+          setSelectedTarget("calm");
+        } else if (moodScore >= 8) {
+          setSelectedTarget("energize");
+        } else {
+          setSelectedTarget("focus");
+        }
+      }
+    } catch (error) {
+      console.error("Error loading recent mood:", error);
+    }
+  };
+
+  const generatePlaylist = async () => {
+    setIsGenerating(true);
+    
+    try {
+      const userGenres = user?.preferences?.music_genres || [];
+      const moodContext = recentMood ? `Recent mood: ${recentMood.mood_score}/10 with emotions: ${recentMood.emotion_tags?.join(', ')}` : '';
+      
+      const prompt = `
+        As a music therapist and AI DJ, create a personalized playlist to help achieve the mood target: ${selectedTarget}.
+        
+        Context:
+        - User's preferred genres: ${userGenres.length > 0 ? userGenres.join(', ') : 'Open to all genres'}
+        - ${moodContext}
+        - Target mood: ${selectedTarget}
+        
+        Create a playlist with 8-12 songs that will help transition the user to feel more ${selectedTarget}.
+        For each song, provide:
+        - Song title
+        - Artist name
+        - Genre
+        - Brief explanation of how this song helps achieve the mood target
+        - Spotify URL (use realistic format: spotify:track:example)
+        
+        Also provide an explanation of the overall therapeutic approach of this playlist.
+        Make the playlist name creative and mood-appropriate.
+      `;
+
+      const result = await InvokeLLM({
+        prompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            playlist_name: { type: "string" },
+            songs: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  artist: { type: "string" },
+                  genre: { type: "string" },
+                  spotify_url: { type: "string" },
+                  mood_effect: { type: "string" }
+                }
+              }
+            },
+            therapeutic_explanation: { type: "string" }
+          }
+        }
+      });
+
+      const playlistData = {
+        mood_target: selectedTarget,
+        playlist_name: result.playlist_name,
+        songs: result.songs,
+        ai_explanation: result.therapeutic_explanation
+      };
+
+      await MusicRecommendation.create(playlistData);
+      setCurrentPlaylist(playlistData);
+      loadUserAndPlaylists();
+
+      // Award points
+      try {
+        await User.updateMyUserData({
+          total_points: (user.total_points || 0) + 15
+        });
+      } catch (error) {
+        console.log("Could not update points");
+      }
+
+    } catch (error) {
+      console.error("Error generating playlist:", error);
+    }
+    
+    setIsGenerating(false);
+  };
+
+  const getMoodIcon = (target) => {
+    const mood = MOOD_TARGETS.find(m => m.value === target);
+    return mood ? mood.icon : Music2;
+  };
+
+  const getMoodGradient = (target) => {
+    const mood = MOOD_TARGETS.find(m => m.value === target);
+    return mood ? mood.gradient : "from-gray-400 to-gray-600";
+  };
+
+  const getMoodDescription = (target) => {
+    const mood = MOOD_TARGETS.find(m => m.value === target);
+    return mood ? mood.description : "";
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+          AI Music Therapy
+        </h1>
+        <p className="text-gray-600">Personalized playlists to enhance your mood and well-being</p>
+      </motion.div>
+
+      {recentMood && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="wellness-card rounded-xl p-4 shadow-lg"
+        >
+          <div className="flex items-center gap-3">
+            <Heart className="w-5 h-5 text-pink-600" />
+            <span className="font-medium">Based on your recent mood ({recentMood.mood_score}/10), we suggest music to help you feel more balanced.</span>
+          </div>
+        </motion.div>
+      )}
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader>
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <Headphones className="w-6 h-6 text-purple-600" />
+                Create Your Therapeutic Playlist
+              </h2>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  What mood would you like to achieve?
+                </label>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {MOOD_TARGETS.map((target) => {
+                    const Icon = target.icon;
+                    const isSelected = selectedTarget === target.value;
+                    return (
+                      <motion.button
+                        key={target.value}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setSelectedTarget(target.value)}
+                        className={`p-4 rounded-xl border-2 transition-all duration-200 text-left ${
+                          isSelected 
+                            ? 'border-purple-400 bg-purple-50 shadow-md' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className={`w-8 h-8 bg-gradient-to-r ${target.gradient} rounded-lg flex items-center justify-center`}>
+                            <Icon className="w-4 h-4 text-white" />
+                          </div>
+                          <span className="font-medium">{target.label}</span>
+                        </div>
+                        <p className="text-sm text-gray-600">{target.description}</p>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Button
+                onClick={generatePlaylist}
+                disabled={isGenerating}
+                className={`w-full bg-gradient-to-r ${getMoodGradient(selectedTarget)} text-white py-3 text-lg font-medium rounded-xl shadow-lg hover:shadow-xl transition-all duration-300`}
+              >
+                {isGenerating ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Creating your therapeutic playlist...
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Music2 className="w-5 h-5" />
+                    Generate AI Playlist
+                  </div>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <AnimatePresence>
+            {currentPlaylist && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+              >
+                <Card className="wellness-card border-0 shadow-xl">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xl font-semibold flex items-center gap-2">
+                        <div className={`w-8 h-8 bg-gradient-to-r ${getMoodGradient(currentPlaylist.mood_target)} rounded-lg flex items-center justify-center`}>
+                          {React.createElement(getMoodIcon(currentPlaylist.mood_target), { 
+                            className: "w-5 h-5 text-white" 
+                          })}
+                        </div>
+                        {currentPlaylist.playlist_name}
+                      </h3>
+                      <Badge className="bg-purple-100 text-purple-800">
+                        {currentPlaylist.songs?.length || 0} songs
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="bg-purple-50 rounded-xl p-4">
+                      <h4 className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                        <Brain className="w-4 h-4" />
+                        Therapeutic Approach:
+                      </h4>
+                      <p className="text-purple-800 text-sm">{currentPlaylist.ai_explanation}</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-gray-900">Playlist:</h4>
+                      {currentPlaylist.songs?.map((song, index) => (
+                        <motion.div
+                          key={index}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.1 }}
+                          className="bg-white rounded-lg p-4 border border-gray-100 shadow-sm hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h5 className="font-medium text-gray-900">{song.title}</h5>
+                              <p className="text-sm text-gray-600">by {song.artist}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                {song.genre}
+                              </Badge>
+                              <a
+                                href={song.spotify_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-green-600 hover:text-green-800 transition-colors"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-600 italic">{song.mood_effect}</p>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="space-y-6">
+          <Card className="wellness-card border-0 shadow-lg">
+            <CardHeader>
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Volume2 className="w-5 h-5 text-purple-600" />
+                Recent Playlists
+              </h3>
+            </CardHeader>
+            <CardContent>
+              {recentPlaylists.length > 0 ? (
+                <div className="space-y-3">
+                  {recentPlaylists.map((playlist) => {
+                    const Icon = getMoodIcon(playlist.mood_target);
+                    return (
+                      <div key={playlist.id} className="bg-white rounded-lg p-3 border border-gray-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Icon className="w-4 h-4 text-gray-600" />
+                            <span className="font-medium text-sm">{playlist.playlist_name}</span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {new Date(playlist.created_date).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {playlist.songs?.length || 0} songs • {playlist.mood_target?.replace('_', ' ')}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  <Music2 className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                  <p>No playlists yet</p>
+                  <p className="text-sm">Generate your first therapeutic playlist!</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="wellness-card border-0 shadow-lg">
+            <CardHeader>
+              <h3 className="text-lg font-semibold text-gray-900">Music Therapy Benefits</h3>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 text-sm text-gray-600">
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Reduces stress and anxiety levels</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Improves focus and concentration</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Enhances mood and emotional well-being</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 flex-shrink-0" />
+                  <span>Promotes better sleep quality</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

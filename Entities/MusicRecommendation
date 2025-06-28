@@ -1,0 +1,50 @@
+{
+  "name": "MusicRecommendation",
+  "type": "object",
+  "properties": {
+    "mood_target": {
+      "type": "string",
+      "enum": [
+        "calm",
+        "energize",
+        "focus",
+        "sleep",
+        "motivation",
+        "stress_relief"
+      ]
+    },
+    "playlist_name": {
+      "type": "string"
+    },
+    "songs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "artist": {
+            "type": "string"
+          },
+          "genre": {
+            "type": "string"
+          },
+          "spotify_url": {
+            "type": "string"
+          },
+          "mood_effect": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ai_explanation": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "mood_target",
+    "playlist_name"
+  ]
+}

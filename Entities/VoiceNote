@@ -1,0 +1,53 @@
+{
+  "name": "VoiceNote",
+  "type": "object",
+  "properties": {
+    "audio_url": {
+      "type": "string",
+      "description": "URL to the recorded audio file"
+    },
+    "transcription": {
+      "type": "string",
+      "description": "AI-generated transcription of the voice note"
+    },
+    "sentiment": {
+      "type": "string",
+      "enum": [
+        "positive",
+        "neutral",
+        "negative",
+        "mixed"
+      ]
+    },
+    "key_emotions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ai_insights": {
+      "type": "string",
+      "description": "AI analysis of the voice note content"
+    },
+    "action_items": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "mood_reflection",
+        "goal_setting",
+        "gratitude",
+        "challenge",
+        "achievement",
+        "general"
+      ]
+    }
+  },
+  "required": [
+    "transcription"
+  ]
+}

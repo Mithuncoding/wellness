@@ -1,0 +1,695 @@
+import React, { useState, useEffect } from 'react';
+import { Therapist, CalendarEvent, User } from '@/entities/all';
+import { InvokeLLM } from '@/integrations/Core';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+  Star, 
+  CheckCircle, 
+  Calendar,
+  Clock,
+  MapPin,
+  Phone,
+  Video,
+  MessageCircle,
+  Heart,
+  Award,
+  Users,
+  Search,
+  Filter,
+  ArrowLeft,
+  Sparkles,
+  Brain,
+  Shield,
+  Target
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const THERAPY_TYPES = [
+  { id: 'anxiety', label: 'Anxiety & Stress', icon: Brain, color: 'bg-blue-100 text-blue-800' },
+  { id: 'depression', label: 'Depression Support', icon: Heart, color: 'bg-purple-100 text-purple-800' },
+  { id: 'relationships', label: 'Relationships', icon: Users, color: 'bg-pink-100 text-pink-800' },
+  { id: 'academic', label: 'Academic Pressure', icon: Target, color: 'bg-green-100 text-green-800' },
+  { id: 'trauma', label: 'Trauma Recovery', icon: Shield, color: 'bg-red-100 text-red-800' },
+  { id: 'general', label: 'General Wellness', icon: Sparkles, color: 'bg-yellow-100 text-yellow-800' }
+];
+
+export default function TherapyPage() {
+  const [therapists, setTherapists] = useState([]);
+  const [filteredTherapists, setFilteredTherapists] = useState([]);
+  const [selectedTherapist, setSelectedTherapist] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
+  const [sessionType, setSessionType] = useState('video');
+  const [bookingStep, setBookingStep] = useState(1);
+  const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [specializationFilter, setSpecializationFilter] = useState('All');
+  const [sessionNotes, setSessionNotes] = useState('');
+  const [isGeneratingMatch, setIsGeneratingMatch] = useState(false);
+  const [aiMatchedTherapist, setAiMatchedTherapist] = useState(null);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    filterTherapists();
+  }, [therapists, searchTerm, specializationFilter]);
+
+  const loadData = async () => {
+    try {
+      const [therapistsData, userData] = await Promise.all([
+        Therapist.list(),
+        User.me()
+      ]);
+      setTherapists(therapistsData);
+      setUser(userData);
+    } catch (error) {
+      console.error("Error loading therapists:", error);
+    }
+  };
+
+  const filterTherapists = () => {
+    let filtered = therapists.filter(therapist =>
+      therapist.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      therapist.specialization.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    if (specializationFilter !== 'All') {
+      filtered = filtered.filter(therapist =>
+        therapist.specialization.toLowerCase().includes(specializationFilter.toLowerCase())
+      );
+    }
+
+    setFilteredTherapists(filtered);
+  };
+
+  const generateAIMatch = async () => {
+    setIsGeneratingMatch(true);
+    try {
+      const prompt = `
+        Based on this user's wellness profile, recommend the best therapist match:
+        - Goals: ${user?.wellness_goals?.join(', ') || 'General wellness'}
+        - Stress level: ${user?.profile_setup?.stress_level || 5}/10
+        - Age: ${user?.profile_setup?.age || 'Unknown'}
+        - Current issues: Stress, academic pressure, general wellness
+        
+        Available therapists:
+        ${therapists.map(t => `- ${t.name}: ${t.specialization} (${t.experience_years} years, ${t.rating} rating)`).join('\n')}
+        
+        Provide the best match with detailed reasoning.
+      `;
+
+      const result = await InvokeLLM({
+        prompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            recommended_therapist: { type: "string" },
+            reasoning: { type: "string" },
+            session_focus: { type: "string" }
+          }
+        }
+      });
+
+      const matchedTherapist = therapists.find(t => 
+        t.name.toLowerCase().includes(result.recommended_therapist.toLowerCase())
+      );
+
+      if (matchedTherapist) {
+        setAiMatchedTherapist({
+          therapist: matchedTherapist,
+          reasoning: result.reasoning,
+          sessionFocus: result.session_focus
+        });
+      }
+    } catch (error) {
+      console.error("Error generating AI match:", error);
+    }
+    setIsGeneratingMatch(false);
+  };
+
+  const handleSelectTherapist = (therapist) => {
+    setSelectedTherapist(therapist);
+    setBookingStep(2);
+  };
+
+  const handleSelectTime = (time) => {
+    setSelectedTime(time);
+    setBookingStep(3);
+  };
+
+  const confirmBooking = async () => {
+    try {
+      await CalendarEvent.create({
+        event_type: 'therapy_session',
+        title: `${sessionType === 'video' ? 'Video' : 'In-person'} Therapy with ${selectedTherapist.name}`,
+        start_time: selectedTime,
+        end_time: new Date(new Date(selectedTime).getTime() + 60 * 60 * 1000).toISOString(),
+        description: `${selectedTherapist.specialization} session${sessionNotes ? `. Notes: ${sessionNotes}` : ''}`
+      });
+
+      // Award points for booking
+      await User.updateMyUserData({
+        total_points: (user.total_points || 0) + 50
+      });
+
+      setBookingConfirmed(true);
+    } catch (error) {
+      console.error("Failed to book session:", error);
+    }
+  };
+
+  const resetBooking = () => {
+    setSelectedTherapist(null);
+    setSelectedTime(null);
+    setSessionType('video');
+    setSessionNotes('');
+    setBookingStep(1);
+    setBookingConfirmed(false);
+  };
+
+  const specializations = ['All', ...new Set(therapists.map(t => t.specialization))];
+
+  const renderTherapistCard = (therapist, isAIRecommended = false) => (
+    <motion.div
+      whileHover={{ scale: 1.02, y: -5 }}
+      whileTap={{ scale: 0.98 }}
+      className="h-full"
+    >
+      <Card 
+        className={`wellness-card shadow-lg cursor-pointer h-full transition-all duration-300 hover:shadow-xl ${
+          isAIRecommended ? 'ring-2 ring-purple-400 bg-gradient-to-br from-purple-50 to-blue-50' : ''
+        }`}
+        onClick={() => handleSelectTherapist(therapist)}
+      >
+        <CardHeader className="pb-4">
+          {isAIRecommended && (
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-purple-600" />
+              <Badge className="bg-purple-100 text-purple-800">AI Recommended</Badge>
+            </div>
+          )}
+          <div className="flex items-center gap-4">
+            <img 
+              src={therapist.image_url} 
+              alt={therapist.name}
+              className="w-16 h-16 rounded-full object-cover ring-4 ring-white shadow-lg"
+              onError={(e) => {
+                e.target.src = `https://images.unsplash.com/photo-1559839734-2b71ea197ec2?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80`;
+              }}
+            />
+            <div className="flex-1">
+              <h3 className="text-xl font-bold text-gray-900">{therapist.name}</h3>
+              <p className="text-gray-600 text-sm">{therapist.specialization}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center gap-1">
+                  {[...Array(5)].map((_, i) => (
+                    <Star 
+                      key={i} 
+                      className={`w-4 h-4 ${
+                        i < Math.floor(therapist.rating) 
+                          ? 'text-yellow-400 fill-current' 
+                          : 'text-gray-300'
+                      }`} 
+                    />
+                  ))}
+                  <span className="text-sm text-gray-600 ml-1">{therapist.rating}</span>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {therapist.experience_years}+ years
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        
+        <CardContent className="space-y-4">
+          <p className="text-gray-700 text-sm leading-relaxed">{therapist.bio}</p>
+          
+          {isAIRecommended && aiMatchedTherapist && (
+            <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+              <h4 className="font-semibold text-purple-900 text-sm mb-1">Why this match?</h4>
+              <p className="text-purple-800 text-xs">{aiMatchedTherapist.reasoning}</p>
+            </div>
+          )}
+          
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-1">
+                <Video className="w-4 h-4" />
+                <span>Video</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <MessageCircle className="w-4 h-4" />
+                <span>Chat</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-bold text-green-600">$85</div>
+              <div className="text-xs text-gray-500">per session</div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <span className="text-sm text-gray-600">
+              {therapist.availability?.length || 0} slots available this week
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+
+  const renderBookingSteps = () => {
+    switch (bookingStep) {
+      case 1:
+        return (
+          <div className="space-y-8">
+            {/* AI Recommendation Section */}
+            <Card className="wellness-card border-0 shadow-xl bg-gradient-to-r from-purple-50 to-blue-50">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <Sparkles className="w-6 h-6 text-purple-600" />
+                    AI Therapist Matching
+                  </h2>
+                  <Button 
+                    onClick={generateAIMatch}
+                    disabled={isGeneratingMatch}
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    {isGeneratingMatch ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Finding your match...
+                      </div>
+                    ) : (
+                      <>
+                        <Brain className="w-4 h-4 mr-2" />
+                        Find My Perfect Match
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {aiMatchedTherapist ? (
+                  <div className="grid lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-1">
+                      {renderTherapistCard(aiMatchedTherapist.therapist, true)}
+                    </div>
+                    <div className="lg:col-span-2 space-y-4">
+                      <div>
+                        <h3 className="font-semibold text-gray-900 mb-2">Session Focus</h3>
+                        <p className="text-gray-700">{aiMatchedTherapist.sessionFocus}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        {THERAPY_TYPES.slice(0, 4).map(type => {
+                          const Icon = type.icon;
+                          return (
+                            <div key={type.id} className="flex items-center gap-3 p-3 bg-white rounded-lg">
+                              <Icon className="w-5 h-5 text-purple-600" />
+                              <span className="text-sm font-medium">{type.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Brain className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                    <p className="text-gray-600">Get personalized therapist recommendations based on your wellness profile</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Search and Filter */}
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input 
+                  placeholder="Search by name or specialization..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={specializationFilter} onValueChange={setSpecializationFilter}>
+                <SelectTrigger className="w-full md:w-64">
+                  <Filter className="w-4 h-4 mr-2" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {specializations.map(spec => (
+                    <SelectItem key={spec} value={spec}>{spec}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Therapist Grid */}
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <AnimatePresence>
+                {filteredTherapists.map((therapist, index) => (
+                  <motion.div
+                    key={therapist.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ delay: index * 0.1 }}
+                  >
+                    {renderTherapistCard(therapist)}
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+
+            {filteredTherapists.length === 0 && (
+              <div className="text-center py-12">
+                <Users className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No therapists found</h3>
+                <p className="text-gray-600">Try adjusting your search or filters.</p>
+              </div>
+            )}
+          </div>
+        );
+
+      case 2:
+        return (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="flex items-center gap-4 mb-6">
+              <Button 
+                variant="outline" 
+                onClick={() => setBookingStep(1)}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Therapists
+              </Button>
+              <div>
+                <h2 className="text-2xl font-bold">Book with {selectedTherapist?.name}</h2>
+                <p className="text-gray-600">{selectedTherapist?.specialization}</p>
+              </div>
+            </div>
+
+            <div className="grid lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-6">
+                {/* Session Type */}
+                <Card className="wellness-card">
+                  <CardHeader>
+                    <h3 className="text-lg font-semibold">Session Type</h3>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <button
+                        onClick={() => setSessionType('video')}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          sessionType === 'video' 
+                            ? 'border-blue-400 bg-blue-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <Video className="w-6 h-6 mx-auto mb-2 text-blue-600" />
+                        <div className="font-medium">Video Call</div>
+                        <div className="text-sm text-gray-600">Most popular</div>
+                      </button>
+                      <button
+                        onClick={() => setSessionType('phone')}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          sessionType === 'phone' 
+                            ? 'border-green-400 bg-green-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <Phone className="w-6 h-6 mx-auto mb-2 text-green-600" />
+                        <div className="font-medium">Phone Call</div>
+                        <div className="text-sm text-gray-600">Audio only</div>
+                      </button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Available Times */}
+                <Card className="wellness-card">
+                  <CardHeader>
+                    <h3 className="text-lg font-semibold">Available Times</h3>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {selectedTherapist?.availability?.map((time, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleSelectTime(time)}
+                          className={`p-3 rounded-lg border-2 text-sm transition-all ${
+                            selectedTime === time 
+                              ? 'border-purple-400 bg-purple-50' 
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="font-medium">
+                            {new Date(time).toLocaleDateString('en-US', { 
+                              weekday: 'short', 
+                              month: 'short', 
+                              day: 'numeric' 
+                            })}
+                          </div>
+                          <div className="text-gray-600">
+                            {new Date(time).toLocaleTimeString([], { 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            })}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Session Notes */}
+                <Card className="wellness-card">
+                  <CardHeader>
+                    <h3 className="text-lg font-semibold">What would you like to discuss? (Optional)</h3>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      placeholder="Share any specific topics, concerns, or goals for your session..."
+                      value={sessionNotes}
+                      onChange={(e) => setSessionNotes(e.target.value)}
+                      className="min-h-24"
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="lg:col-span-1">
+                <Card className="wellness-card sticky top-4">
+                  <CardHeader>
+                    <h3 className="text-lg font-semibold">Session Summary</h3>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <img 
+                        src={selectedTherapist?.image_url} 
+                        alt={selectedTherapist?.name}
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                      <div>
+                        <div className="font-medium">{selectedTherapist?.name}</div>
+                        <div className="text-sm text-gray-600">{selectedTherapist?.specialization}</div>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Type:</span>
+                        <span className="capitalize">{sessionType} session</span>
+                      </div>
+                      {selectedTime && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Date:</span>
+                            <span>{new Date(selectedTime).toLocaleDateString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Time:</span>
+                            <span>{new Date(selectedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        </>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Duration:</span>
+                        <span>60 minutes</span>
+                      </div>
+                      <div className="flex justify-between font-semibold pt-2 border-t">
+                        <span>Total:</span>
+                        <span>$85.00</span>
+                      </div>
+                    </div>
+
+                    <Button 
+                      onClick={() => setBookingStep(3)}
+                      disabled={!selectedTime}
+                      className="w-full bg-purple-600 hover:bg-purple-700"
+                    >
+                      Continue to Payment
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 3:
+        return (
+          <div className="max-w-2xl mx-auto text-center space-y-6">
+            <Card className="wellness-card p-8">
+              <h2 className="text-2xl font-bold mb-4">Confirm Your Booking</h2>
+              <div className="space-y-4 mb-6">
+                <div className="flex items-center justify-center gap-4">
+                  <img 
+                    src={selectedTherapist?.image_url} 
+                    alt={selectedTherapist?.name}
+                    className="w-16 h-16 rounded-full object-cover"
+                  />
+                  <div className="text-left">
+                    <h3 className="text-xl font-bold">{selectedTherapist?.name}</h3>
+                    <p className="text-gray-600">{selectedTherapist?.specialization}</p>
+                  </div>
+                </div>
+                
+                <div className="bg-gray-50 rounded-lg p-4 text-left space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Session Type:</span>
+                    <span className="capitalize">{sessionType} call</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Date & Time:</span>
+                    <span>
+                      {new Date(selectedTime).toLocaleDateString()} at{' '}
+                      {new Date(selectedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Duration:</span>
+                    <span>60 minutes</span>
+                  </div>
+                  <div className="flex justify-between font-semibold pt-2 border-t">
+                    <span>Total Cost:</span>
+                    <span>$85.00</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-4 justify-center">
+                <Button 
+                  onClick={() => setBookingStep(2)} 
+                  variant="outline"
+                  className="px-8"
+                >
+                  Back
+                </Button>
+                <Button 
+                  onClick={confirmBooking}
+                  className="px-8 bg-purple-600 hover:bg-purple-700"
+                >
+                  Confirm & Pay
+                </Button>
+              </div>
+            </Card>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+      <motion.div 
+        initial={{ opacity: 0, y: -20 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="text-center space-y-4"
+      >
+        <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-pink-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
+          Professional Therapy Support
+        </h1>
+        <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+          Connect with licensed therapists who understand student life. Get the support you need, when you need it.
+        </p>
+        
+        {/* Trust indicators */}
+        <div className="flex justify-center gap-8 mt-6">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-purple-600">{therapists.length}</div>
+            <div className="text-sm text-gray-600">Licensed Therapists</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-green-600">4.9</div>
+            <div className="text-sm text-gray-600">Average Rating</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-blue-600">24/7</div>
+            <div className="text-sm text-gray-600">Support Available</div>
+          </div>
+        </div>
+      </motion.div>
+      
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={bookingStep}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.3 }}
+        >
+          {bookingConfirmed ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-center space-y-6"
+            >
+              <Card className="wellness-card max-w-2xl mx-auto p-8">
+                <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-6" />
+                <h2 className="text-3xl font-bold text-green-600 mb-4">Session Confirmed!</h2>
+                <p className="text-gray-600 mb-6 text-lg">
+                  Your therapy session has been booked successfully. You'll receive a confirmation email with session details.
+                </p>
+                
+                <div className="bg-green-50 rounded-lg p-4 mb-6">
+                  <h3 className="font-semibold text-green-900 mb-2">What's Next?</h3>
+                  <ul className="text-green-800 text-sm space-y-1">
+                    <li>• Check your email for session link and preparation materials</li>
+                    <li>• Your session has been added to your StartWell calendar</li>
+                    <li>• You earned 50 wellness points for prioritizing your mental health</li>
+                  </ul>
+                </div>
+                
+                <div className="flex gap-4 justify-center">
+                  <Button onClick={resetBooking} variant="outline">
+                    Book Another Session
+                  </Button>
+                  <Button onClick={() => window.location.href = createPageUrl('Calendar')}>
+                    View Calendar
+                  </Button>
+                </div>
+              </Card>
+            </motion.div>
+          ) : (
+            renderBookingSteps()
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}

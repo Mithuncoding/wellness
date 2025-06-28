@@ -1,0 +1,496 @@
+import React, { useState } from 'react';
+import { User } from "@/entities/User";
+import { InvokeLLM } from "@/integrations/Core";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import { 
+  Heart, 
+  Target, 
+  User as UserIcon, 
+  Brain, 
+  Zap, 
+  Sparkles,
+  Mic,
+  MicOff
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+const WELLNESS_GOALS = [
+  { id: "weight_loss", label: "Weight Loss", icon: "🎯", description: "Lose weight healthily and sustainably" },
+  { id: "muscle_gain", label: "Muscle Gain", icon: "💪", description: "Build lean muscle and strength" },
+  { id: "mental_health", label: "Mental Health", icon: "🧠", description: "Improve emotional well-being" },
+  { id: "better_sleep", label: "Better Sleep", icon: "😴", description: "Enhance sleep quality and duration" },
+  { id: "stress_reduction", label: "Stress Reduction", icon: "🧘", description: "Manage and reduce daily stress" },
+  { id: "energy_boost", label: "Energy Boost", icon: "⚡", description: "Increase daily energy levels" },
+  { id: "productivity", label: "Productivity", icon: "🚀", description: "Enhance focus and efficiency" },
+  { id: "social_wellness", label: "Social Wellness", icon: "🤝", description: "Improve relationships and social connections" }
+];
+
+const COACHING_STYLES = [
+  { id: "motivational", label: "Motivational", description: "High-energy, pushy, results-driven" },
+  { id: "gentle", label: "Gentle", description: "Supportive, understanding, patient" },
+  { id: "analytical", label: "Analytical", description: "Data-driven, logical, detailed" },
+  { id: "friendly", label: "Friendly", description: "Casual, encouraging, fun" }
+];
+
+export default function OnboardingFlow({ onComplete }) {
+  const [currentStep, setCurrentStep] = useState(1);
+  const [formData, setFormData] = useState({
+    profile: {},
+    goals: [],
+    preferences: {},
+    personality: {}
+  });
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+
+  React.useEffect(() => {
+    setVoiceSupported('webkitSpeechRecognition' in window || 'SpeechRecognition' in window);
+  }, []);
+
+  const totalSteps = 5;
+  const progress = (currentStep / totalSteps) * 100;
+
+  const handleVoiceInput = (field, callback) => {
+    if (!voiceSupported) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    setIsListening(true);
+    
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      callback(transcript);
+      setIsListening(false);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  };
+
+  const completeOnboarding = async () => {
+    try {
+      // Generate AI personality based on user inputs
+      const personalityPrompt = `
+        Based on this user profile, create a personalized AI wellness coach:
+        - Goals: ${formData.goals.join(', ')}
+        - Age: ${formData.profile.age}
+        - Activity Level: ${formData.profile.activity_level}
+        - Stress Level: ${formData.profile.stress_level}/10
+        - Preferred Coaching Style: ${formData.personality.coaching_style}
+        
+        Generate a coach name and personalized welcome message.
+      `;
+
+      const aiResult = await InvokeLLM({
+        prompt: personalityPrompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            coach_name: { type: "string" },
+            welcome_message: { type: "string" },
+            personalized_tips: { type: "array", items: { type: "string" } }
+          }
+        }
+      });
+
+      const userData = {
+        wellness_goals: formData.goals,
+        profile_setup: formData.profile,
+        preferences: formData.preferences,
+        ai_personality: {
+          ...formData.personality,
+          coach_name: aiResult.coach_name
+        },
+        onboarding_completed: true,
+        total_points: 50 // Welcome bonus
+      };
+
+      await User.updateMyUserData(userData);
+      onComplete(aiResult);
+    } catch (error) {
+      console.error("Error completing onboarding:", error);
+    }
+  };
+
+  const renderStep = () => {
+    switch (currentStep) {
+      case 1:
+        return (
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                <Heart className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Welcome to StartWell</h2>
+              <p className="text-gray-600">Let's personalize your wellness journey with AI</p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Age</label>
+                  <Input
+                    type="number"
+                    placeholder="25"
+                    value={formData.profile.age || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      profile: { ...prev.profile, age: parseInt(e.target.value) }
+                    }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Activity Level</label>
+                  <Select
+                    value={formData.profile.activity_level || ''}
+                    onValueChange={(value) => setFormData(prev => ({
+                      ...prev,
+                      profile: { ...prev.profile, activity_level: value }
+                    }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select activity level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sedentary">Sedentary</SelectItem>
+                      <SelectItem value="lightly_active">Lightly Active</SelectItem>
+                      <SelectItem value="moderately_active">Moderately Active</SelectItem>
+                      <SelectItem value="very_active">Very Active</SelectItem>
+                      <SelectItem value="extremely_active">Extremely Active</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Current Stress Level (1-10)
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={formData.profile.stress_level || 5}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    profile: { ...prev.profile, stress_level: parseInt(e.target.value) }
+                  }))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>Low Stress</span>
+                  <span className="font-medium">{formData.profile.stress_level || 5}/10</span>
+                  <span>High Stress</span>
+                </div>
+              </div>
+
+              {voiceSupported && (
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mic className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-900">Voice Input Available</span>
+                  </div>
+                  <p className="text-xs text-blue-700">You can use voice commands throughout the app!</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+
+      case 2:
+        return (
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-green-500 to-blue-500 rounded-full flex items-center justify-center">
+                <Target className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Your Wellness Goals</h2>
+              <p className="text-gray-600">Select all goals that resonate with you</p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-2 gap-4">
+                {WELLNESS_GOALS.map((goal) => (
+                  <motion.div
+                    key={goal.id}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <label className={`block p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      formData.goals.includes(goal.id)
+                        ? 'border-green-400 bg-green-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      <div className="flex items-center space-x-3">
+                        <Checkbox
+                          checked={formData.goals.includes(goal.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setFormData(prev => ({
+                                ...prev,
+                                goals: [...prev.goals, goal.id]
+                              }));
+                            } else {
+                              setFormData(prev => ({
+                                ...prev,
+                                goals: prev.goals.filter(g => g !== goal.id)
+                              }));
+                            }
+                          }}
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">{goal.icon}</span>
+                            <span className="font-medium">{goal.label}</span>
+                          </div>
+                          <p className="text-sm text-gray-600">{goal.description}</p>
+                        </div>
+                      </div>
+                    </label>
+                  </motion.div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 3:
+        return (
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center">
+                <Brain className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">AI Coach Personality</h2>
+              <p className="text-gray-600">How would you like your AI coach to interact with you?</p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4">
+                {COACHING_STYLES.map((style) => (
+                  <motion.button
+                    key={style.id}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setFormData(prev => ({
+                      ...prev,
+                      personality: { ...prev.personality, coaching_style: style.id }
+                    }))}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      formData.personality.coaching_style === style.id
+                        ? 'border-orange-400 bg-orange-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <h3 className="font-medium mb-1">{style.label}</h3>
+                    <p className="text-sm text-gray-600">{style.description}</p>
+                  </motion.button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 4:
+        return (
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full flex items-center justify-center">
+                <Zap className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Preferences & Features</h2>
+              <p className="text-gray-600">Customize your experience</p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Voice Commands & Responses
+                </label>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    checked={formData.preferences.voice_enabled !== false}
+                    onCheckedChange={(checked) => setFormData(prev => ({
+                      ...prev,
+                      preferences: { ...prev.preferences, voice_enabled: checked }
+                    }))}
+                  />
+                  <span className="text-sm">Enable voice interactions throughout the app</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notification Preferences
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {['Morning (8 AM)', 'Afternoon (2 PM)', 'Evening (7 PM)', 'Night (9 PM)'].map((time) => (
+                    <label key={time} className="flex items-center space-x-2">
+                      <Checkbox
+                        checked={(formData.preferences.notification_times || []).includes(time)}
+                        onCheckedChange={(checked) => {
+                          const times = formData.preferences.notification_times || [];
+                          if (checked) {
+                            setFormData(prev => ({
+                              ...prev,
+                              preferences: {
+                                ...prev.preferences,
+                                notification_times: [...times, time]
+                              }
+                            }));
+                          } else {
+                            setFormData(prev => ({
+                              ...prev,
+                              preferences: {
+                                ...prev.preferences,
+                                notification_times: times.filter(t => t !== time)
+                              }
+                            }));
+                          }
+                        }}
+                      />
+                      <span className="text-sm">{time}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Dietary Restrictions (Optional)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="e.g., vegetarian, gluten-free, dairy-free"
+                    value={formData.preferences.dietary_restrictions?.join(', ') || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      preferences: {
+                        ...prev.preferences,
+                        dietary_restrictions: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                      }
+                    }))}
+                  />
+                  {voiceSupported && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleVoiceInput('dietary', (text) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          preferences: {
+                            ...prev.preferences,
+                            dietary_restrictions: text.split(',').map(s => s.trim()).filter(s => s)
+                          }
+                        }));
+                      })}
+                      disabled={isListening}
+                    >
+                      {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 5:
+        return (
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center">
+                <Sparkles className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Ready to Start!</h2>
+              <p className="text-gray-600">Your personalized wellness journey awaits</p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-6">
+                <h3 className="font-semibold text-gray-900 mb-4">Your Profile Summary:</h3>
+                <div className="space-y-2 text-sm">
+                  <p><strong>Goals:</strong> {formData.goals.length} selected</p>
+                  <p><strong>Activity Level:</strong> {formData.profile.activity_level}</p>
+                  <p><strong>Coaching Style:</strong> {formData.personality.coaching_style}</p>
+                  <p><strong>Voice Enabled:</strong> {formData.preferences.voice_enabled !== false ? 'Yes' : 'No'}</p>
+                </div>
+              </div>
+              
+              <Button
+                onClick={completeOnboarding}
+                className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white py-3 text-lg font-medium rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
+              >
+                Complete Setup & Start Journey
+              </Button>
+            </CardContent>
+          </Card>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-green-50 to-blue-50 p-4 flex items-center justify-center">
+      <div className="w-full max-w-2xl">
+        <div className="mb-8">
+          <Progress value={progress} className="h-2 mb-4" />
+          <div className="flex justify-between text-sm text-gray-600">
+            <span>Step {currentStep} of {totalSteps}</span>
+            <span>{Math.round(progress)}% Complete</span>
+          </div>
+        </div>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentStep}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            {renderStep()}
+          </motion.div>
+        </AnimatePresence>
+
+        <div className="flex justify-between mt-8">
+          <Button
+            variant="outline"
+            onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
+            disabled={currentStep === 1}
+          >
+            Previous
+          </Button>
+          
+          {currentStep < totalSteps && (
+            <Button
+              onClick={() => setCurrentStep(prev => prev + 1)}
+              disabled={
+                (currentStep === 1 && (!formData.profile.age || !formData.profile.activity_level)) ||
+                (currentStep === 2 && formData.goals.length === 0) ||
+                (currentStep === 3 && !formData.personality.coaching_style)
+              }
+            >
+              Next
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

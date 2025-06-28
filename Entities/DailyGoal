@@ -1,0 +1,47 @@
+{
+  "name": "DailyGoal",
+  "type": "object",
+  "properties": {
+    "goal_type": {
+      "type": "string",
+      "enum": [
+        "mood_check",
+        "workout",
+        "meditation",
+        "water_intake",
+        "sleep_quality",
+        "nutrition",
+        "gratitude",
+        "steps",
+        "screen_time"
+      ]
+    },
+    "target_value": {
+      "type": "number",
+      "description": "Target value for the goal"
+    },
+    "current_value": {
+      "type": "number",
+      "default": 0
+    },
+    "completed": {
+      "type": "boolean",
+      "default": false
+    },
+    "completion_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ai_encouragement": {
+      "type": "string"
+    },
+    "streak_count": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "goal_type",
+    "target_value"
+  ]
+}

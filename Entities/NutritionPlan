@@ -1,0 +1,51 @@
+{
+  "name": "NutritionPlan",
+  "type": "object",
+  "properties": {
+    "meal_type": {
+      "type": "string",
+      "enum": [
+        "breakfast",
+        "lunch",
+        "dinner",
+        "snack"
+      ]
+    },
+    "foods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "calories": {
+            "type": "number"
+          },
+          "protein": {
+            "type": "number"
+          },
+          "carbs": {
+            "type": "number"
+          },
+          "fat": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "total_calories": {
+      "type": "number"
+    },
+    "ai_reasoning": {
+      "type": "string"
+    },
+    "wellness_goal_alignment": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "meal_type",
+    "foods"
+  ]
+}

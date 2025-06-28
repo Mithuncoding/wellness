@@ -1,0 +1,370 @@
+
+import React, { useState, useEffect } from "react";
+import { User, MoodEntry, WorkoutSession, NutritionPlan, CalendarEvent } from "@/entities/all";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { 
+  Trophy, 
+  Medal, 
+  Star, 
+  Target, 
+  Calendar,
+  Zap,
+  Heart,
+  Dumbbell,
+  Utensils,
+  Music,
+  Crown,
+  Award,
+  CheckCircle,
+  BookOpen,
+  Users
+} from "lucide-react";
+import { motion } from "framer-motion";
+
+const ACHIEVEMENTS = [
+  { id: "first_mood", title: "Mindful Start", description: "Log your first mood entry", icon: Heart, gradient: "from-pink-500 to-rose-500", points: 10, requirement: 1, type: "mood_entries", tier: "Bronze" },
+  { id: "mood_week", title: "Consistent Mind", description: "Log your mood for 7 consecutive days", icon: Calendar, gradient: "from-purple-500 to-indigo-500", points: 50, requirement: 7, type: "mood_streak", tier: "Silver" },
+  { id: "first_workout", title: "First Move", description: "Complete your first AI workout", icon: Dumbbell, gradient: "from-blue-500 to-cyan-500", points: 15, requirement: 1, type: "workouts", tier: "Bronze" },
+  { id: "workout_warrior", title: "Workout Warrior", description: "Complete 10 workouts", icon: Medal, gradient: "from-orange-500 to-red-500", points: 100, requirement: 10, type: "workouts", tier: "Silver" },
+  { id: "nutrition_starter", title: "Healthy Eater", description: "Generate your first meal plan", icon: Utensils, gradient: "from-green-500 to-emerald-500", points: 15, requirement: 1, type: "nutrition_plans", tier: "Bronze" },
+  { id: "music_therapy", title: "Sound Mind", description: "Generate 5 therapeutic playlists", icon: Music, gradient: "from-violet-500 to-purple-500", points: 75, requirement: 5, type: "music_playlists", tier: "Silver" },
+  // New Advanced Achievements
+  { id: "first_course_completed", title: "Knowledge Seeker", description: "Complete your first Wellness University course", icon: BookOpen, gradient: "from-blue-600 to-green-600", points: 150, requirement: 1, type: "courses_completed", tier: "Silver" },
+  { id: "therapy_booked", title: "Reaching Out", description: "Take the brave step to book a therapy session", icon: Users, gradient: "from-pink-600 to-purple-600", points: 200, requirement: 1, type: "therapy_sessions_booked", tier: "Gold" },
+  { id: "workout_master", title: "Fitness Master", description: "Complete 50 workouts", icon: Crown, gradient: "from-red-500 to-yellow-500", points: 500, requirement: 50, type: "workouts", tier: "Gold" },
+  { id: "point_master", title: "Point Collector", description: "Earn 1000 wellness points", icon: Star, gradient: "from-yellow-500 to-orange-500", points: 200, requirement: 1000, type: "total_points", tier: "Gold" },
+  { id: "streak_champion", title: "30-Day Champion", description: "Maintain a 30-day streak", icon: Trophy, gradient: "from-amber-500 to-yellow-500", points: 300, requirement: 30, type: "current_streak", tier: "Gold" }
+];
+
+const TIER_COLORS = {
+    Bronze: "border-amber-700",
+    Silver: "border-slate-400",
+    Gold: "border-yellow-500"
+};
+
+const TIER_GRADIENTS = {
+    Bronze: "from-amber-100 to-amber-50",
+    Silver: "from-slate-100 to-slate-50",
+    Gold: "from-yellow-100 to-yellow-50"
+}
+
+const LEVELS = [
+  { level: 1, title: "Wellness Beginner", minPoints: 0, color: "text-gray-600" },
+  { level: 2, title: "Mindful Explorer", minPoints: 100, color: "text-green-600" },
+  { level: 3, title: "Wellness Enthusiast", minPoints: 300, color: "text-blue-600" },
+  { level: 4, title: "Health Champion", minPoints: 600, color: "text-purple-600" },
+  { level: 5, title: "Wellness Master", minPoints: 1000, color: "text-orange-600" },
+  { level: 6, title: "Zen Warrior", minPoints: 1500, color: "text-red-600" },
+  { level: 7, title: "Wellness Guru", minPoints: 2500, color: "text-indigo-600" },
+  { level: 8, title: "Ultimate Wellness", minPoints: 5000, color: "text-pink-600" }
+];
+
+export default function Achievements() {
+  const [user, setUser] = useState(null);
+  const [stats, setStats] = useState({});
+  const [unlockedAchievements, setUnlockedAchievements] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadUserAndStats();
+  }, []);
+
+  const loadUserAndStats = async () => {
+    try {
+      const [userData, moods, workouts, nutritionPlans, calendarEvents] = await Promise.all([
+        User.me(),
+        MoodEntry.list('-created_date', 100),
+        WorkoutSession.list('-created_date', 100),
+        NutritionPlan.list('-created_date', 100),
+        CalendarEvent.list()
+      ]);
+
+      setUser(userData);
+      
+      const userStats = {
+        mood_entries: moods.length,
+        mood_streak: calculateMoodStreak(moods),
+        workouts: workouts.filter(w => w.completed).length,
+        nutrition_plans: nutritionPlans.length,
+        music_playlists: 0, // Placeholder for future implementation
+        courses_completed: Math.floor((userData.completed_chapters?.length || 0) / 5), // Mocking courses from chapters
+        therapy_sessions_booked: calendarEvents.filter(e => e.event_type === 'therapy_session').length,
+        total_points: userData.total_points || 0,
+        current_streak: userData.current_streak || 0
+      };
+      
+      setStats(userStats);
+      checkAchievements(userStats, userData.achievements || []);
+    } catch (error) {
+      console.error("Error loading achievements:", error);
+    }
+    setIsLoading(false);
+  };
+
+  const calculateMoodStreak = (moods) => {
+    if (moods.length === 0) return 0;
+    
+    let streak = 1;
+    for (let i = 1; i < moods.length; i++) {
+      const current = new Date(moods[i-1].created_date);
+      const next = new Date(moods[i].created_date);
+      const diffDays = Math.floor((current - next) / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  };
+
+  const checkAchievements = async (userStats, existingAchievements) => {
+    const newAchievements = [];
+    
+    ACHIEVEMENTS.forEach(achievement => {
+      const currentValue = userStats[achievement.type] || 0;
+      const isUnlocked = currentValue >= achievement.requirement;
+      const alreadyHas = existingAchievements.includes(achievement.id);
+      
+      if (isUnlocked && !alreadyHas) {
+        newAchievements.push(achievement.id);
+      }
+    });
+
+    if (newAchievements.length > 0) {
+      try {
+        const updatedAchievements = [...existingAchievements, ...newAchievements];
+        const bonusPoints = newAchievements.reduce((sum, id) => {
+          const achievement = ACHIEVEMENTS.find(a => a.id === id);
+          return sum + (achievement?.points || 0);
+        }, 0);
+
+        await User.updateMyUserData({
+          achievements: updatedAchievements,
+          total_points: (userStats.total_points || 0) + bonusPoints
+        });
+
+        setUnlockedAchievements(newAchievements);
+      } catch (error) {
+        console.error("Error updating achievements:", error);
+      }
+    }
+  };
+
+  const getCurrentLevel = () => {
+    const points = user?.total_points || 0;
+    let currentLevel = LEVELS[0];
+    
+    for (let i = LEVELS.length - 1; i >= 0; i--) {
+      if (points >= LEVELS[i].minPoints) {
+        currentLevel = LEVELS[i];
+        break;
+      }
+    }
+    
+    return currentLevel;
+  };
+
+  const getNextLevel = () => {
+    const currentLevel = getCurrentLevel();
+    const nextLevelIndex = LEVELS.findIndex(l => l.level === currentLevel.level) + 1;
+    return nextLevelIndex < LEVELS.length ? LEVELS[nextLevelIndex] : null;
+  };
+
+  const getProgressToNextLevel = () => {
+    const points = user?.total_points || 0;
+    const nextLevel = getNextLevel();
+    
+    if (!nextLevel) return 100;
+    
+    const currentLevel = getCurrentLevel();
+    const progress = ((points - currentLevel.minPoints) / (nextLevel.minPoints - currentLevel.minPoints)) * 100;
+    return Math.min(100, Math.max(0, progress));
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="h-32 bg-gray-200 rounded-xl"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentLevel = getCurrentLevel();
+  const nextLevel = getNextLevel();
+
+  return (
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-yellow-600 to-orange-600 bg-clip-text text-transparent mb-2">
+          Achievements & Progress
+        </h1>
+        <p className="text-gray-600">Celebrate your wellness journey milestones</p>
+      </motion.div>
+
+      {/* Level Progress Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <Card className="wellness-card border-0 shadow-xl">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center">
+                  <Crown className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">{currentLevel.title}</h2>
+                  <p className="text-gray-600">Level {currentLevel.level}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-2xl font-bold text-gray-900">{user?.total_points || 0}</p>
+                <p className="text-sm text-gray-600">Total Points</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {nextLevel ? (
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Progress to {nextLevel.title}</span>
+                  <span className="font-medium">
+                    {user?.total_points || 0} / {nextLevel.minPoints} points
+                  </span>
+                </div>
+                <Progress value={getProgressToNextLevel()} className="h-3" />
+                <p className="text-xs text-gray-500 text-center">
+                  {nextLevel.minPoints - (user?.total_points || 0)} points to next level
+                </p>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <Trophy className="w-8 h-8 mx-auto mb-2 text-yellow-500" />
+                <p className="font-semibold text-gray-800">Maximum Level Reached!</p>
+                <p className="text-sm text-gray-600">You've achieved wellness mastery</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Stats Overview */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {[
+          { label: "Mood Entries", value: stats.mood_entries, icon: Heart, color: "text-pink-600" },
+          { label: "Workouts", value: stats.workouts, icon: Dumbbell, color: "text-blue-600" },
+          { label: "Meal Plans", value: stats.nutrition_plans, icon: Utensils, color: "text-green-600" },
+          { label: "Courses Done", value: stats.courses_completed, icon: BookOpen, color: "text-indigo-600" },
+          { label: "Current Streak", value: stats.current_streak, icon: Calendar, color: "text-purple-600" }
+        ].map((stat, index) => (
+          <motion.div
+            key={stat.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 + index * 0.1 }}
+          >
+            <Card className="wellness-card border-0 shadow-lg text-center">
+              <CardContent className="pt-6">
+                <stat.icon className={`w-8 h-8 mx-auto mb-2 ${stat.color}`} />
+                <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                <p className="text-sm text-gray-600">{stat.label}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Achievements Grid */}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+          <Trophy className="w-6 h-6 text-yellow-600" />
+          Your Achievements
+        </h2>
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {ACHIEVEMENTS.map((achievement, index) => {
+            const Icon = achievement.icon;
+            const currentValue = stats[achievement.type] || 0;
+            const isUnlocked = currentValue >= achievement.requirement;
+            const progress = Math.min(100, (currentValue / achievement.requirement) * 100);
+            const isNewlyUnlocked = unlockedAchievements.includes(achievement.id);
+
+            return (
+              <motion.div
+                key={achievement.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 + index * 0.05 }}
+                className={`relative ${isNewlyUnlocked ? 'animate-pulse' : ''}`}
+              >
+                <Card className={`wellness-card border-2 shadow-lg transition-all duration-300 ${
+                  isUnlocked 
+                    ? `${TIER_COLORS[achievement.tier]} bg-gradient-to-br ${TIER_GRADIENTS[achievement.tier]}` 
+                    : 'border-transparent'
+                }`}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 bg-gradient-to-r ${achievement.gradient} rounded-xl flex items-center justify-center ${
+                          !isUnlocked ? 'opacity-50 grayscale' : ''
+                        }`}>
+                          <Icon className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{achievement.title}</h3>
+                          <p className="text-sm text-gray-600">{achievement.description}</p>
+                        </div>
+                      </div>
+                      {isUnlocked && (
+                        <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <Progress value={progress} className="h-2" />
+                      <div className="flex justify-between items-center text-xs">
+                        <Badge variant="outline" className={`${TIER_COLORS[achievement.tier]}`}>
+                          {achievement.tier}
+                        </Badge>
+                        <span className="font-medium text-gray-700">
+                          +{achievement.points} points
+                        </span>
+                        <span className="text-gray-600">
+                          {currentValue} / {achievement.requirement}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                {isNewlyUnlocked && (
+                  <div className="absolute -top-2 -right-2">
+                    <div className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center animate-bounce">
+                      <Star className="w-3 h-3 text-white" />
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,48 @@
+{
+  "name": "RealTimeMetric",
+  "type": "object",
+  "properties": {
+    "metric_type": {
+      "type": "string",
+      "enum": [
+        "heart_rate",
+        "steps",
+        "calories",
+        "sleep_hours",
+        "water_intake",
+        "screen_time",
+        "meditation_minutes",
+        "mood_score",
+        "energy_level",
+        "stress_level"
+      ]
+    },
+    "value": {
+      "type": "number"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "voice_input",
+        "smartwatch",
+        "phone_sensor",
+        "ai_estimation"
+      ]
+    },
+    "ai_interpretation": {
+      "type": "string"
+    },
+    "trend_analysis": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "metric_type",
+    "value"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "name": "CalendarEvent",
+  "type": "object",
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "workout",
+        "meditation",
+        "meal_prep",
+        "doctor_appointment",
+        "therapy_session",
+        "wellness_check",
+        "habit_reminder",
+        "social_activity"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "start_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reminder_times": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      }
+    },
+    "ai_prepared": {
+      "type": "boolean",
+      "default": false
+    },
+    "completion_status": {
+      "type": "string",
+      "enum": [
+        "scheduled",
+        "in_progress",
+        "completed",
+        "skipped",
+        "rescheduled"
+      ],
+      "default": "scheduled"
+    },
+    "ai_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "event_type",
+    "title",
+    "start_time"
+  ]
+}

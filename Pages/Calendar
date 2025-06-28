@@ -1,0 +1,143 @@
+import React, { useState } from 'react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { motion } from "framer-motion";
+import WellnessCalendar from "../components/calendar/WellnessCalendar";
+
+export default function CalendarPage() {
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
+  const firstDayOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
+  
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const navigateMonth = (direction) => {
+    const newMonth = new Date(currentMonth);
+    newMonth.setMonth(currentMonth.getMonth() + direction);
+    setCurrentMonth(newMonth);
+  };
+
+  const selectDate = (day) => {
+    const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+    setSelectedDate(newDate);
+  };
+
+  const isToday = (day) => {
+    const today = new Date();
+    return today.getDate() === day &&
+           today.getMonth() === currentMonth.getMonth() &&
+           today.getFullYear() === currentMonth.getFullYear();
+  };
+
+  const isSelected = (day) => {
+    return selectedDate.getDate() === day &&
+           selectedDate.getMonth() === currentMonth.getMonth() &&
+           selectedDate.getFullYear() === currentMonth.getFullYear();
+  };
+
+  const calendarDays = [];
+  
+  // Empty cells for days before the first day of the month
+  for (let i = 0; i < firstDayOfMonth; i++) {
+    calendarDays.push(null);
+  }
+  
+  // Days of the month
+  for (let day = 1; day <= daysInMonth; day++) {
+    calendarDays.push(day);
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center"
+      >
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent mb-2">
+          Wellness Calendar
+        </h1>
+        <p className="text-gray-600">Plan and track your wellness activities</p>
+      </motion.div>
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        {/* Calendar View */}
+        <div className="lg:col-span-1">
+          <Card className="wellness-card border-0 shadow-xl">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5 text-indigo-600" />
+                  {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                </h2>
+                <div className="flex gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => navigateMonth(-1)}
+                    className="h-8 w-8"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => navigateMonth(1)}
+                    className="h-8 w-8"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-7 gap-1 mb-2">
+                {dayNames.map((day) => (
+                  <div key={day} className="text-center text-xs font-medium text-gray-500 p-2">
+                    {day}
+                  </div>
+                ))}
+              </div>
+              
+              <div className="grid grid-cols-7 gap-1">
+                {calendarDays.map((day, index) => (
+                  <motion.button
+                    key={index}
+                    whileHover={day ? { scale: 1.05 } : {}}
+                    whileTap={day ? { scale: 0.95 } : {}}
+                    onClick={() => day && selectDate(day)}
+                    disabled={!day}
+                    className={`aspect-square flex items-center justify-center text-sm rounded-lg transition-all duration-200 ${
+                      !day 
+                        ? ''
+                        : isSelected(day)
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : isToday(day)
+                        ? 'bg-indigo-100 text-indigo-800 font-medium'
+                        : 'hover:bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {day}
+                  </motion.button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Calendar Events */}
+        <div className="lg:col-span-2">
+          <WellnessCalendar selectedDate={selectedDate} />
+        </div>
+      </div>
+    </div>
+  );
+}
